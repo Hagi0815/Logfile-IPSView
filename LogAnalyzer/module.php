@@ -13,11 +13,12 @@
 */
 
 declare(strict_types=1);
+require_once __DIR__ . '/libs/LogAnalyzerBase.php';
 require_once __DIR__ . '/libs/LogAnalyzerStandardTrait.php';
 require_once __DIR__ . '/libs/LogAnalyzerSystemTrait.php';
 require_once __DIR__ . '/libs/LogAnalyzerUltraTrait.php';
 
-class LogAnalyzerIPSView extends IPSModuleStrict
+class LogAnalyzerIPSView extends LogAnalyzerBase
 {
 	use LogAnalyzerStandardTrait;
 	use LogAnalyzerSystemTrait;
@@ -132,6 +133,8 @@ class LogAnalyzerIPSView extends IPSModuleStrict
     {
 		// nicht löschen
         parent::ApplyChanges();
+
+		$this->RegisterHook('/hook/LogAnalyzerIPSView_' . $this->InstanceID);
 
 		// Tile Visu nutzen (deaktiviert - IPSView HTML-Box)
         // $this->SetVisualizationType(1);
@@ -557,12 +560,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
      * Parameter: keine
      * Rückgabewert: void
      */
-	public function ProcessHookData()
-	{
-		// Absolut minimal - nur ausgeben um zu testen ob Hook aufgerufen wird
-		echo $this->GetValue('HTMLBOX');
-	}
-
 	public function AktualisierenVisualisierung(): void
 	{
 		$this->aktualisiereVisualisierung();
@@ -610,35 +607,106 @@ class LogAnalyzerIPSView extends IPSModuleStrict
      * Rückgabewert: void
      */
 
+
 	private function erstelleHtmlFuerIPSView(array $daten): string
 	{
+		$instanzId   = $this->InstanceID;
+		$h           = '/hook/LogAnalyzerIPSView_' . $instanzId;
 		$status      = is_array($daten['status'] ?? null) ? $daten['status'] : [];
 		$zeilen      = is_array($daten['zeilen'] ?? null) ? $daten['zeilen'] : [];
-		$logDatei    = htmlspecialchars(basename((string) ($daten['logDatei'] ?? '')));
-		$dateiGroesse= htmlspecialchars((string) ($daten['dateiGroesse'] ?? ''));
-		$treffer     = (int) ($daten['trefferGesamt'] ?? -1);
-		$von         = (int) ($daten['bereichVon'] ?? 0);
-		$bis         = (int) ($daten['bereichBis'] ?? 0);
-		$ts          = htmlspecialchars((string) ($daten['zeitstempel'] ?? ''));
-		$seite       = (int) ($status['seite'] ?? 0);
-		$ladezeitTab = (int) ($daten['ladezeitMs'] ?? 0);
-		$aktiveTypen = (array) ($status['filterTypen'] ?? []);
-		$aktiveSender= (array) ($status['senderFilter'] ?? []);
-		$textFilter  = htmlspecialchars((string) ($status['textFilter'] ?? ''));
-		$objektFilter= htmlspecialchars((string) ($status['objektIdFilter'] ?? ''));
+		$logDatei    = (string)($daten['logDatei'] ?? '');
+		$logDateiBn  = htmlspecialchars(basename($logDatei));
+		$dateiGroesse= htmlspecialchars((string)($daten['dateiGroesse'] ?? ''));
+		$treffer     = (int)($daten['trefferGesamt'] ?? -1);
+		$von         = (int)($daten['bereichVon'] ?? 0);
+		$bis         = (int)($daten['bereichBis'] ?? 0);
+		$ts          = htmlspecialchars((string)($daten['zeitstempel'] ?? ''));
+		$seite       = (int)($status['seite'] ?? 0);
+		$maxZeilen   = (int)($daten['maxZeilen'] ?? 50);
+		$ladezeitTab = (int)($daten['ladezeitMs'] ?? 0);
+		$aktiveTypen = (array)($status['filterTypen'] ?? []);
+		$aktiveSender= (array)($status['senderFilter'] ?? []);
+		$textFilter  = htmlspecialchars((string)($status['textFilter'] ?? ''));
+		$objektFilter= htmlspecialchars((string)($status['objektIdFilter'] ?? ''));
+		$verfTypen   = (array)($daten['verfuegbareFilterTypen'] ?? []);
+		$verfSender  = (array)($daten['verfuegbareSender'] ?? []);
+		$verfDateien = (array)($daten['verfuegbareLogdateien'] ?? []);
+		$hatWeitere  = (bool)($daten['hatWeitere'] ?? false);
+		$modus       = htmlspecialchars((string)($daten['betriebsmodus'] ?? 'standard'));
 
-		if (!(bool) ($daten['ok'] ?? false)) {
-			$msg = htmlspecialchars((string) ($daten['fehlermeldung'] ?? 'Fehler'));
-			return "<!DOCTYPE html><html><body style='background:#1a1a1a;color:#f88;padding:12px;font-family:sans-serif'>&#9888; {$msg}</body></html>";
+		if (!(bool)($daten['ok'] ?? false)) {
+			$msg = htmlspecialchars((string)($daten['fehlermeldung'] ?? 'Fehler'));
+			return "<!DOCTYPE html><html><body style='background:#1a1a1a;color:#f88;padding:12px;font-family:sans-serif'>
+				<b>&#9888; {$msg}</b><br><br>
+				<a href='{$h}' style='color:#7cf;padding:6px 12px;background:#222;border-radius:4px;text-decoration:none'>&#8635; Neu laden</a>
+			</body></html>";
 		}
 
-		$metaTreffer = $treffer >= 0 ? "{$von}–{$bis} / {$treffer}" : '-';
-		$filterInfo  = '';
-		if (!empty($aktiveTypen))  $filterInfo .= ' | Typen: ' . htmlspecialchars(implode(', ', $aktiveTypen));
-		if (!empty($aktiveSender)) $filterInfo .= ' | Sender: ' . htmlspecialchars(implode(', ', $aktiveSender));
-		if ($textFilter !== '')    $filterInfo .= ' | Text: ' . $textFilter;
-		if ($objektFilter !== '')  $filterInfo .= ' | ObjID: ' . $objektFilter;
+		// Metazeile
+		$metaTreffer = $treffer >= 0 ? "{$von}–{$bis}&nbsp;/&nbsp;{$treffer}" : '...';
+		$seiteAnz    = $seite + 1;
 
+		// Logdatei-Optionen
+		$logOpts = '';
+		foreach ($verfDateien as $d) {
+			$pfad = htmlspecialchars((string)($d['pfad'] ?? ''));
+			$name = htmlspecialchars((string)($d['anzeige'] ?? basename((string)($d['pfad'] ?? ''))));
+			$sel  = ($pfad === $logDatei) ? ' selected' : '';
+			$logOpts .= "<option value=\"{$pfad}\"{$sel}>{$name}</option>";
+		}
+		if ($logOpts === '') {
+			$logOpts = '<option value="' . htmlspecialchars($logDatei) . '" selected>' . $logDateiBn . '</option>';
+		}
+
+		// Zeilen-Optionen
+		$zeilenOpts = '';
+		foreach ([20, 50, 100, 200, 500, 1000] as $z) {
+			$sel = ($z === $maxZeilen) ? ' selected' : '';
+			$zeilenOpts .= "<option value=\"{$z}\"{$sel}>{$z}</option>";
+		}
+
+		// Modus-Optionen
+		$modusOpts = '';
+		foreach (['standard' => 'Standard (bis 6MB)', 'system' => 'System (grep)'] as $val => $lbl) {
+			$sel = ($val === $modus) ? ' selected' : '';
+			$modusOpts .= "<option value=\"{$val}\"{$sel}>{$lbl}</option>";
+		}
+
+		// Typ-Checkboxen
+		$typChecks = '';
+		foreach ($verfTypen as $t) {
+			$chk     = in_array($t, $aktiveTypen, true) ? ' checked' : '';
+			$tSafe   = htmlspecialchars($t);
+			$typChecks .= "<label class='cb-label'><input type='checkbox' name='ft[]' value='{$tSafe}'{$chk}> {$tSafe}</label>";
+		}
+		if ($typChecks === '') $typChecks = '<span class="muted">Beim n&auml;chsten Reload verf&uuml;gbar</span>';
+
+		// Sender-Checkboxen
+		$sndChecks = '';
+		foreach ($verfSender as $s) {
+			$chk     = in_array($s, $aktiveSender, true) ? ' checked' : '';
+			$sSafe   = htmlspecialchars($s);
+			$sndChecks .= "<label class='cb-label'><input type='checkbox' name='sf[]' value='{$sSafe}'{$chk}> {$sSafe}</label>";
+		}
+		if ($sndChecks === '') $sndChecks = '<span class="muted">Beim n&auml;chsten Reload verf&uuml;gbar</span>';
+
+		// Aktive Filter-Badges
+		$filterBadges = '';
+		foreach ($aktiveTypen  as $t) $filterBadges .= "<span class='fbadge'>Typ: " . htmlspecialchars($t) . "</span>";
+		foreach ($aktiveSender as $s) $filterBadges .= "<span class='fbadge'>Sender: " . htmlspecialchars($s) . "</span>";
+		if ($textFilter)  $filterBadges .= "<span class='fbadge'>Text: {$textFilter}</span>";
+		if ($objektFilter) $filterBadges .= "<span class='fbadge'>ObjID: {$objektFilter}</span>";
+		$filterBadges = $filterBadges ?: '<span class="muted">Kein Filter</span>';
+
+		// Navigation
+		$urlNeu = $h . '?a=SeiteZurueck';
+		$urlAlt = $h . '?a=SeiteVor';
+		$urlRel = $h . '?a=Aktualisieren';
+		$urlRst = $h . '?a=FilterReset';
+		$disNeu = ($seite <= 0) ? ' disabled' : '';
+		$disAlt = (!$hatWeitere && !($treffer > 0 && ($seite + 1) * $maxZeilen < $treffer)) ? ' disabled' : '';
+
+		// Tabelle
 		$typFarben = [
 			'DEBUG' => '#7ecfff', 'INFO' => '#aaffaa', 'WARNING' => '#ffd080',
 			'ERROR' => '#ff7070', 'FATAL' => '#ff4444', 'NOTIFY' => '#d0aaff',
@@ -646,21 +714,21 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		];
 		$tbody = '';
 		if (empty($zeilen)) {
-			$tbody = "<tr><td colspan='5' style='padding:14px;color:#555'>Keine Eintr&auml;ge gefunden.</td></tr>";
+			$tbody = "<tr><td colspan='5' class='empty'>Keine Eintr&auml;ge gefunden.</td></tr>";
 		} else {
 			foreach ($zeilen as $z) {
-				$typ    = htmlspecialchars((string) ($z['typ']         ?? ''));
-				$sender = htmlspecialchars((string) ($z['sender']      ?? ''));
-				$msg    = htmlspecialchars((string) ($z['meldung']     ?? ''));
-				$zeit   = htmlspecialchars((string) ($z['zeitstempel'] ?? ''));
-				$oid    = htmlspecialchars((string) ($z['objektId']    ?? ''));
+				$typ    = htmlspecialchars((string)($z['typ']         ?? ''));
+				$sender = htmlspecialchars((string)($z['sender']      ?? ''));
+				$msg    = htmlspecialchars((string)($z['meldung']     ?? ''));
+				$zeit   = htmlspecialchars((string)($z['zeitstempel'] ?? ''));
+				$oid    = htmlspecialchars((string)($z['objektId']    ?? ''));
 				$farbe  = $typFarben[strtoupper($typ)] ?? '#cccccc';
 				$tbody .= "<tr>
-					<td style='color:#555;white-space:nowrap;padding:4px 8px;font-size:11px'>{$zeit}</td>
-					<td style='white-space:nowrap;padding:4px 8px;font-size:11px'>{$oid}</td>
-					<td style='color:{$farbe};white-space:nowrap;padding:4px 8px;font-size:11px;font-weight:bold'>{$typ}</td>
-					<td style='color:#aaa;white-space:nowrap;padding:4px 8px;font-size:11px'>{$sender}</td>
-					<td style='padding:4px 8px;word-break:break-word;font-size:12px'>{$msg}</td>
+					<td class='c-z'>{$zeit}</td>
+					<td class='c-o'>{$oid}</td>
+					<td class='c-t' style='color:{$farbe}'>{$typ}</td>
+					<td class='c-s'>{$sender}</td>
+					<td class='c-m'>{$msg}</td>
 				</tr>";
 			}
 		}
@@ -669,29 +737,122 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 <!DOCTYPE html><html lang="de"><head><meta charset="utf-8">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:Arial,sans-serif;font-size:13px;background:#1a1a1a;color:#ccc}
-.meta{padding:6px 10px;font-size:11px;color:#666;background:#1e1e1e;border-bottom:1px solid #2a2a2a}
+body{font-family:Arial,Helvetica,sans-serif;font-size:13px;background:#1a1a1a;color:#ccc}
+.bar{background:#222;border-bottom:1px solid #2e2e2e;padding:8px 10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.bar2{background:#1e1e1e;border-bottom:1px solid #2a2a2a;padding:8px 10px;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start}
+select,input[type=text]{background:#2a2a2a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:4px 7px;font-size:12px}
+select:focus,input:focus{outline:none;border-color:#555}
+.btn{display:inline-block;background:#2a2a2a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;
+     padding:4px 10px;font-size:12px;text-decoration:none;cursor:pointer;white-space:nowrap}
+.btn:hover{background:#333;color:#fff}
+.btn-primary{background:#5a3000;border-color:#8a5000;color:#ffd080}
+.btn-primary:hover{background:#7a4000}
+.btn-reset{background:#2a1a1a;border-color:#553333;color:#f99}
+.btn-reset:hover{background:#3a2020}
+.btn[disabled]{opacity:.4;cursor:default;pointer-events:none}
+.lbl{font-size:10px;color:#666;white-space:nowrap;align-self:center}
+.group{display:flex;flex-direction:column;gap:4px}
+.group-title{font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.5px}
+.cb-wrap{display:flex;flex-wrap:wrap;gap:4px;max-width:500px}
+.cb-label{display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;
+           background:#2a2a2a;border:1px solid #3a3a3a;border-radius:3px;padding:2px 7px;
+           white-space:nowrap}
+.cb-label:hover{background:#333}
+.cb-label input{cursor:pointer}
+.fbadge{background:#5a3000;border:1px solid #8a5000;color:#ffd080;border-radius:3px;
+        padding:2px 7px;font-size:11px;margin-right:3px}
+.muted{color:#555;font-size:11px}
+.meta{padding:6px 10px;font-size:11px;color:#666;background:#1a1a1a;
+      border-bottom:1px solid #2a2a2a;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
 table{width:100%;border-collapse:collapse}
-thead th{background:#7a4400;color:#fff;padding:7px 8px;text-align:left;font-size:12px;position:sticky;top:0}
+thead th{background:#7a4400;color:#fff;padding:6px 8px;text-align:left;
+         font-size:11px;position:sticky;top:0;white-space:nowrap}
 tbody tr:nth-child(even){background:#1e1e1e}
 tbody tr:hover{background:#252525}
-.tbl-wrap{overflow:auto;max-height:80vh}
+.tbl-wrap{overflow:auto;max-height:68vh}
+.c-z{color:#555;white-space:nowrap;padding:3px 8px;font-size:11px}
+.c-o{white-space:nowrap;padding:3px 8px;font-size:11px;color:#888}
+.c-t{white-space:nowrap;padding:3px 8px;font-size:11px;font-weight:bold}
+.c-s{color:#aaa;padding:3px 8px;font-size:11px;white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis}
+.c-m{padding:3px 8px;word-break:break-word;font-size:12px}
+.empty{padding:14px;color:#555}
 </style></head><body>
-<div class="meta">
-  &#128196; <b>{$logDatei}</b> &nbsp;|&nbsp; {$dateiGroesse} &nbsp;|&nbsp;
-  Seite:&nbsp;{$seite} &nbsp;|&nbsp; Treffer:&nbsp;{$metaTreffer} &nbsp;|&nbsp;
-  Tab:&nbsp;{$ladezeitTab}&nbsp;ms &nbsp;|&nbsp; Stand:&nbsp;{$ts}{$filterInfo}
+
+<!-- Zeile 1: Logdatei + Zeilen + Modus + Navigation -->
+<div class="bar">
+  <span class="lbl">Logdatei:</span>
+  <form method="GET" action="{$h}" style="display:contents">
+    <input type="hidden" name="a" value="LogDateiAuswaehlen">
+    <select name="v" onchange="this.form.submit()">{$logOpts}</select>
+  </form>
+
+  <span class="lbl">Zeilen:</span>
+  <form method="GET" action="{$h}" style="display:contents">
+    <input type="hidden" name="a" value="SetzeMaxZeilen">
+    <select name="v" onchange="this.form.submit()">{$zeilenOpts}</select>
+  </form>
+
+  <span class="lbl">Modus:</span>
+  <form method="GET" action="{$h}" style="display:contents">
+    <input type="hidden" name="a" value="SetzeBetriebsmodus">
+    <select name="v" onchange="this.form.submit()">{$modusOpts}</select>
+  </form>
+
+  <span style="flex:1"></span>
+  <a class="btn" href="{$urlNeu}"{$disNeu}>&#8249; Neuere</a>
+  <span class="lbl" style="color:#888">Seite {$seiteAnz}</span>
+  <a class="btn" href="{$urlAlt}"{$disAlt}>Ältere &#8250;</a>
+  <a class="btn" href="{$urlRel}">&#8635;</a>
 </div>
+
+<!-- Zeile 2: Filter -->
+<form method="GET" action="{$h}">
+<input type="hidden" name="a" value="FilterAnwenden">
+<div class="bar2">
+  <div class="group">
+    <span class="group-title">Meldungstyp</span>
+    <div class="cb-wrap">{$typChecks}</div>
+  </div>
+  <div class="group" style="flex:1;min-width:200px">
+    <span class="group-title">Sender</span>
+    <div class="cb-wrap">{$sndChecks}</div>
+  </div>
+  <div class="group">
+    <span class="group-title">Text-Filter</span>
+    <input type="text" name="tf" value="{$textFilter}" placeholder="Freitext..." style="width:150px">
+    <input type="text" name="oi" value="{$objektFilter}" placeholder="ObjektID..." style="width:120px;margin-top:4px">
+  </div>
+  <div class="group" style="justify-content:flex-end;gap:6px;flex-direction:row;align-items:flex-end">
+    <button type="submit" class="btn btn-primary">Filter anwenden</button>
+    <a class="btn btn-reset" href="{$urlRst}">&#10005; Reset</a>
+  </div>
+</div>
+</form>
+
+<!-- Aktive Filter + Metadaten -->
+<div class="meta">
+  <span>&#128196; <b style="color:#ccc">{$logDateiBn}</b> &nbsp; {$dateiGroesse}</span>
+  <span>Treffer: {$metaTreffer}</span>
+  <span>Tab: {$ladezeitTab}&nbsp;ms</span>
+  <span style="margin-left:auto">Stand: {$ts}</span>
+</div>
+<div class="meta" style="background:#1a1a1a">{$filterBadges}</div>
+
+<!-- Tabelle -->
 <div class="tbl-wrap"><table>
 <thead><tr>
-  <th style="width:145px">Zeit</th><th style="width:75px">ObjektID</th>
-  <th style="width:95px">Typ</th><th style="width:190px">Sender</th><th>Meldung</th>
+  <th style="width:140px">Zeit</th>
+  <th style="width:70px">ObjektID</th>
+  <th style="width:90px">Typ</th>
+  <th style="width:190px">Sender</th>
+  <th>Meldung</th>
 </tr></thead>
 <tbody>{$tbody}</tbody>
 </table></div>
 </body></html>
 HTML;
 	}
+
 
 	private function aktualisiereVisualisierung(): void
 	{
