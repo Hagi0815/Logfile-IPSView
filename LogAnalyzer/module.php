@@ -15,11 +15,13 @@
 declare(strict_types=1);
 require_once __DIR__ . '/libs/LogAnalyzerStandardTrait.php';
 require_once __DIR__ . '/libs/LogAnalyzerSystemTrait.php';
+require_once __DIR__ . '/libs/LogAnalyzerUltraTrait.php';
 
 class LogAnalyzerIPSView extends IPSModuleStrict
 {
 	use LogAnalyzerStandardTrait;
 	use LogAnalyzerSystemTrait;
+	use LogAnalyzerUltraTrait;
 
 	private const ATTR_STATUS = 'VisualisierungsStatus';
 	private const ATTR_FILTERMETA = 'FilterMetadaten';
@@ -40,16 +42,12 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		// nicht löschen
 		parent::Create();
 
+		$this->RegisterAttributeString('AktuelleLogDatei', '');
 		$this->RegisterPropertyString('LogDatei', IPS_GetLogDir() . 'logfile.log');		// nur zu Initialisierung, wird später überschrieben
 		$this->RegisterPropertyInteger('MaxZeilen', 50);
 		$this->RegisterPropertyBoolean('VerwendeSift', false);
 		$this->RegisterPropertyInteger('AutoRefreshSekunden', 0);
 		$this->RegisterPropertyString('Betriebsmodus', 'standard');
-		$this->RegisterPropertyString('IpsUsername', '');
-		$this->RegisterPropertyString('IpsPassword', '');
-
-		// Aktuelle Logdatei als Attribut (überschreibt Property ohne ApplyChanges)
-		$this->RegisterAttributeString('AktuelleLogDatei', '');
 
 		$this->RegisterAttributeString(self::ATTR_STATUS, json_encode([
 			'seite'                    => 0,
@@ -90,11 +88,11 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			'zeilen'            => []
 		], JSON_THROW_ON_ERROR));
 
-		// Visu Aktulisieren
-		$this->RegisterTimer('VisualisierungAktualisieren',0,'LOGANALYZER_AktualisierenVisualisierung($_IPS["TARGET"]);');
 		// HTML-Box Variable für IPSView
 		$this->RegisterVariableString('HTMLBOX', 'Log Anzeige', '~HTMLBox');
 
+		// Visu Aktulisieren
+		$this->RegisterTimer('VisualisierungAktualisieren',0,'LOGANALYZER_AktualisierenVisualisierung($_IPS["TARGET"]);');
 	}
 
     public function Destroy(): void
@@ -118,20 +116,13 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		// nicht löschen
         parent::ApplyChanges();
 
-		// Tile Visu nutzen
-        // Tile-Visualisierung deaktiviert (IPSView HTML-Box wird verwendet)
+		// Tile Visu nutzen (deaktiviert - IPSView HTML-Box)
         // $this->SetVisualizationType(1);
 
         $intervall = max(0, $this->ReadPropertyInteger('AutoRefreshSekunden')) * 1000;
         $this->SetTimerInterval('VisualisierungAktualisieren', $intervall);
 
         $logDatei = $this->ReadPropertyString('LogDatei');
-
-		// Attribut mit Property synchronisieren
-		$attrDatei = trim($this->ReadAttributeString('AktuelleLogDatei'));
-		if ($attrDatei === '' || !is_file($attrDatei)) {
-			$this->WriteAttributeString('AktuelleLogDatei', $logDatei);
-		}
 
 		if (!is_file($logDatei)) {
 			$verfuegbareDateien = $this->ermittleVerfuegbareLogdateien();
@@ -165,48 +156,24 @@ class LogAnalyzerIPSView extends IPSModuleStrict
      */
     public function GetConfigurationForm(): string
     {
-        $elements = [
-            [
-                'type'    => 'Label',
-                'bold'    => true,
-                'caption' => 'Log Analyzer IPSView'
-            ],
-            [
-                'type'    => 'Label',
-                'caption' => 'Alle Einstellungen (Logdatei, Filter, Zeilen, Modus) werden direkt in der HTML-Box gesteuert.'
-            ],
-            [
-                'type'    => 'Label',
-                'caption' => 'Die Variable "HTMLBOX" in IPSView als HTML-Box einbinden.'
-            ],
-            [
-                'type'    => 'Label',
-                'bold'    => true,
-                'caption' => 'IPS-Zugangsdaten für JSON-RPC (nur nötig wenn IPS Authentifizierung aktiviert ist)'
-            ],
-            [
-                'type'    => 'ValidationTextBox',
-                'name'    => 'IpsUsername',
-                'caption' => 'Benutzername'
-            ],
-            [
-                'type'    => 'PasswordTextBox',
-                'name'    => 'IpsPassword',
-                'caption' => 'Passwort'
-            ],
+		$elements = [
+			[
+				"type"    => "Label",
+				"caption" => 'Ausgabe erfolgt in der HTML-Box Variable "HTMLBOX" – diese in IPSView/WebFront einbinden.'
+			],
+			[
+				"type"    => "Label",
+				"caption" => 'Filterung und Navigation über den AutoRefresh-Timer (Sekunden) oder manuell über den Button unten.'
+			]
         ];
 
         $actions = [
             [
                 'type'    => 'Button',
-                'caption' => '1. TEST: Schreibt SetValue direkt',
-                'onClick' => 'LOGANALYZER_TestHtmlBox($id);'
-            ],
-            [
-                'type'    => 'Button',
-                'caption' => '2. HTML-Box aktualisieren',
+                'caption' => 'Visualisierung aktualisieren',
                 'onClick' => 'LOGANALYZER_AktualisierenVisualisierung($id);'
             ],
+
         ];
 
         return json_encode([
@@ -215,6 +182,31 @@ class LogAnalyzerIPSView extends IPSModuleStrict
         ], JSON_THROW_ON_ERROR);
     }
 
+    /**
+     * GetVisualizationTile
+     *
+     * Liefert die HTML-Visualisierung für die Tile-Ansicht.
+     * - Lädt die HTML-Datei des Moduls
+     * - Übergibt die initialen Visualisierungsdaten
+     *
+     * Parameter: keine
+     * Rückgabewert: string
+     */
+    public function GetVisualizationTile(): string
+    {
+        $datei = __DIR__ . '/module.html';	// ggf auch automatisch
+        if (!is_file($datei)) {
+            return '<div style="padding:1rem;font-family:sans-serif;">module.html nicht gefunden.</div>';
+        }
+
+        $html = file_get_contents($datei);
+        if ($html === false) {
+            return '<div style="padding:1rem;font-family:sans-serif;">module.html konnte nicht geladen werden.</div>';
+        }
+
+        $initialDaten = $this->erstelleVisualisierungsDaten();
+        return str_replace('%%INITIAL_DATA%%',json_encode($initialDaten, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),$html);
+    }
 
     /**
      * RequestAction
@@ -349,14 +341,12 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 						throw new Exception('Ungültige Logdatei ausgewählt: ' . $datei);
 					}
 
-					// Ausgewählte Datei als Attribut speichern (kein ApplyChanges nötig)
+					// Attribut statt Property - kein ApplyChanges nötig
 					$this->WriteAttributeString('AktuelleLogDatei', $datei);
 
 					$status = [
 						'seite'                    => 0,
-						'maxZeilen'                => $this->normalisiereMaxZeilen(
-							max((int) ($status['maxZeilen'] ?? 0), $this->ReadPropertyInteger('MaxZeilen'))
-						),
+						'maxZeilen'                => $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50)),
 						'theme'                    => $this->normalisiereTheme((string) ($status['theme'] ?? 'dark')),
 						'kompakt'                  => $this->normalisiereKompakt($status['kompakt'] ?? false),
 						'filterTypen'              => [],
@@ -434,7 +424,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 						$modus = 'standard';
 					}
 
-					// IPSView: Property direkt setzen, kein IPS_ApplyChanges (würde Thread abbrechen)
 					IPS_SetProperty($this->InstanceID, 'Betriebsmodus', $modus);
 
 					$status['trefferGesamt'] = -1;
@@ -465,12 +454,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			throw new Exception('Unbekannte Aktion: ' . $Ident);
 		} catch (\Throwable $e) {
 			$this->SendDebug('RequestAction FEHLER', $e->getMessage(), 0);
-			try {
-				$msg   = htmlspecialchars($e->getMessage());
-				$trace = htmlspecialchars(substr($e->getTraceAsString(), 0, 800));
-				$this->SetValue('HTMLBOX', "<div style='padding:10px;color:#f88;font-family:monospace;font-size:11px;background:#1a1a1a'><b>RequestAction FEHLER:</b> {$msg}<br><br><pre style='color:#888'>{$trace}</pre></div>");
-			} catch (\Throwable $ignored) {}
-		}
+			throw $e;}
 	}
 
     /**
@@ -483,28 +467,9 @@ class LogAnalyzerIPSView extends IPSModuleStrict
      * Parameter: keine
      * Rückgabewert: void
      */
-	public function TestHtmlBox(): void
-	{
-		$zeit = date('H:i:s');
-		$this->SetValue('HTMLBOX', "<html><body style='background:#111;color:#0f0;font-family:monospace;padding:20px'><h2>TEST OK – {$zeit}</h2><p>SetValue funktioniert!</p><p>InstanceID: {$this->InstanceID}</p></body></html>");
-	}
-
-
-
-
-
-
-
 	public function AktualisierenVisualisierung(): void
 	{
-		// Direkt aufrufen ohne Exception-Propagation
-		try {
-			$this->aktualisiereVisualisierung();
-		} catch (\Throwable $e) {
-			// Fehler in HTMLBOX anzeigen statt Exception zu werfen
-			$msg = htmlspecialchars($e->getMessage());
-			$this->SetValue('HTMLBOX', "<div style='padding:10px;color:#f88;font-family:monospace;background:#1a1a1a'>FEHLER: {$msg}</div>");
-		}
+		$this->aktualisiereVisualisierung();
 	}
 
     /**
@@ -533,7 +498,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			),
 			0
 		);
-		// UpdateVisualizationValue nur versuchen (Tile-Visu deaktiviert → kein Fehler)
+		// Tile-Visu deaktiviert - ignorieren
 		@$this->UpdateVisualizationValue(json_encode($daten, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
 		);
 	}
@@ -549,110 +514,35 @@ class LogAnalyzerIPSView extends IPSModuleStrict
      * Rückgabewert: void
      */
 
-
-	/**
-	 * erstelleHtmlFuerIPSView
-	 *
-	 * Erzeugt eine vollständig interaktive HTML-Oberfläche für die IPSView HTML-Box.
-	 * - Enthält alle Filter- und Steuerelemente (wie die original Tile-Ansicht)
-	 * - Kommuniziert via IPS JSON-RPC mit dem Modul (RequestAction)
-	 *
-	 * Parameter: array $daten
-	 * Rückgabewert: string
-	 */
-
 	private function erstelleHtmlFuerIPSView(array $daten): string
 	{
-		$instanzId   = $this->InstanceID;
-		$h           = '/hook/LogAnalyzerIPSView_' . $instanzId;  // Hook-Basis-URL
 		$status      = is_array($daten['status'] ?? null) ? $daten['status'] : [];
 		$zeilen      = is_array($daten['zeilen'] ?? null) ? $daten['zeilen'] : [];
-		$logDatei    = (string) ($daten['logDatei'] ?? '');
+		$logDatei    = htmlspecialchars(basename((string) ($daten['logDatei'] ?? '')));
 		$dateiGroesse= htmlspecialchars((string) ($daten['dateiGroesse'] ?? ''));
 		$treffer     = (int) ($daten['trefferGesamt'] ?? -1);
 		$von         = (int) ($daten['bereichVon'] ?? 0);
 		$bis         = (int) ($daten['bereichBis'] ?? 0);
 		$ts          = htmlspecialchars((string) ($daten['zeitstempel'] ?? ''));
 		$seite       = (int) ($status['seite'] ?? 0);
-		$maxZeilen   = (int) ($daten['maxZeilen'] ?? 50);
-		$modus       = (string) ($daten['betriebsmodus'] ?? 'standard');
-		$hatWeitere  = (bool) ($daten['hatWeitere'] ?? false);
-		$textFilter  = htmlspecialchars((string) ($status['textFilter'] ?? ''));
-		$objektFilter= htmlspecialchars((string) ($status['objektIdFilter'] ?? ''));
+		$ladezeitTab = (int) ($daten['ladezeitMs'] ?? 0);
 		$aktiveTypen = (array) ($status['filterTypen'] ?? []);
 		$aktiveSender= (array) ($status['senderFilter'] ?? []);
-		$verfTypen   = (array) ($daten['verfuegbareFilterTypen'] ?? []);
-		$verfSender  = (array) ($daten['verfuegbareSender'] ?? []);
-		$ladezeitTab = (int) ($daten['ladezeitMs'] ?? 0);
-		$typSummary  = !empty($aktiveTypen) ? '(' . count($aktiveTypen) . ')' : '';
-		$sndSummary  = !empty($aktiveSender) ? '(' . count($aktiveSender) . ')' : '';
+		$textFilter  = htmlspecialchars((string) ($status['textFilter'] ?? ''));
+		$objektFilter= htmlspecialchars((string) ($status['objektIdFilter'] ?? ''));
 
-		// Fehlerfall
 		if (!(bool) ($daten['ok'] ?? false)) {
 			$msg = htmlspecialchars((string) ($daten['fehlermeldung'] ?? 'Fehler'));
-			return "<!DOCTYPE html><html><body style='background:#1a1a1a;color:#f88;padding:12px;font-family:sans-serif'>
-				<b>&#9888; {$msg}</b><br><br>
-				<a href='{$h}' style='color:#7cf;'>&#8635; Aktualisieren</a>
-			</body></html>";
+			return "<!DOCTYPE html><html><body style='background:#1a1a1a;color:#f88;padding:12px;font-family:sans-serif'>&#9888; {$msg}</body></html>";
 		}
 
-		// Logdatei-Optionen
-		$logOpts = '';
-		foreach ((array) ($daten['verfuegbareLogdateien'] ?? []) as $ld) {
-			$pfad    = htmlspecialchars((string) ($ld['pfad'] ?? ''));
-			$anzeige = htmlspecialchars((string) ($ld['anzeige'] ?? $pfad));
-			$sel     = ($pfad === $logDatei) ? ' selected' : '';
-			$url     = $h . '?a=LogDateiAuswaehlen&v=' . urlencode($pfad);
-			// Wir bauen eine normale Select → Form POST
-			$logOpts .= "<option value=\"{$url}\"{$sel}>{$anzeige}</option>";
-		}
-
-		// MaxZeilen-Optionen
-		$zeilenOpts = '';
-		foreach ([20, 50, 100, 200, 500, 1000, 2000, 3000] as $z) {
-			$sel = ($z === $maxZeilen) ? ' selected' : '';
-			$url = $h . '?a=SetzeMaxZeilen&v=' . $z;
-			$zeilenOpts .= "<option value=\"{$url}\"{$sel}>{$z}</option>";
-		}
-
-		// Modus-Optionen
-		$modusOpts = '';
-		foreach (['standard' => 'Standard', 'system' => 'System'] as $val => $lbl) {
-			$sel = ($val === $modus) ? ' selected' : '';
-			$url = $h . '?a=SetzeBetriebsmodus&v=' . $val;
-			$modusOpts .= "<option value=\"{$url}\"{$sel}>{$lbl}</option>";
-		}
-
-		// Filtertyp-Checkboxen
-		$typChecks = '';
-		foreach ($verfTypen as $typ) {
-			$checked = in_array($typ, $aktiveTypen, true) ? ' checked' : '';
-			$typSafe = htmlspecialchars($typ);
-			$typChecks .= "<label style='display:block;padding:2px 0'><input type='checkbox' name='ft' value='{$typSafe}'{$checked}> {$typSafe}</label>";
-		}
-		if ($typChecks === '') $typChecks = '<span style="color:#666">Keine Daten</span>';
-
-		// Sender-Checkboxen
-		$sndChecks = '';
-		foreach ($verfSender as $snd) {
-			$checked = in_array($snd, $aktiveSender, true) ? ' checked' : '';
-			$sndSafe = htmlspecialchars($snd);
-			$sndChecks .= "<label style='display:block;padding:2px 0'><input type='checkbox' name='sf' value='{$sndSafe}'{$checked}> {$sndSafe}</label>";
-		}
-		if ($sndChecks === '') $sndChecks = '<span style="color:#666">Keine Daten</span>';
-
-		// Navigation
-		$urlNeu    = $h . '?a=SeiteZurueck';
-		$urlAlt    = $h . '?a=SeiteVor';
-		$urlReload = $h . '?a=Aktualisieren';
-		$disNeu    = ($seite <= 0) ? ' style="opacity:.4;pointer-events:none"' : '';
-		$disAlt    = (!$hatWeitere && !($treffer > 0 && $seite < (int) ceil($treffer / max(1, $maxZeilen)) - 1))
-		             ? ' style="opacity:.4;pointer-events:none"' : '';
-
-		// Metazeile
 		$metaTreffer = $treffer >= 0 ? "{$von}–{$bis} / {$treffer}" : '-';
+		$filterInfo  = '';
+		if (!empty($aktiveTypen))  $filterInfo .= ' | Typen: ' . htmlspecialchars(implode(', ', $aktiveTypen));
+		if (!empty($aktiveSender)) $filterInfo .= ' | Sender: ' . htmlspecialchars(implode(', ', $aktiveSender));
+		if ($textFilter !== '')    $filterInfo .= ' | Text: ' . $textFilter;
+		if ($objektFilter !== '')  $filterInfo .= ' | ObjID: ' . $objektFilter;
 
-		// Tabellenbody
 		$typFarben = [
 			'DEBUG' => '#7ecfff', 'INFO' => '#aaffaa', 'WARNING' => '#ffd080',
 			'ERROR' => '#ff7070', 'FATAL' => '#ff4444', 'NOTIFY' => '#d0aaff',
@@ -660,7 +550,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		];
 		$tbody = '';
 		if (empty($zeilen)) {
-			$tbody = "<tr><td colspan='5' style='padding:14px;color:#555'>Keine Einträge gefunden.</td></tr>";
+			$tbody = "<tr><td colspan='5' style='padding:14px;color:#555'>Keine Eintr&auml;ge gefunden.</td></tr>";
 		} else {
 			foreach ($zeilen as $z) {
 				$typ    = htmlspecialchars((string) ($z['typ']         ?? ''));
@@ -679,96 +569,33 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			}
 		}
 
-		// Aktive Filter-Zusammenfassung für Anzeige
-		$filterInfo = '';
-		if (!empty($aktiveTypen))  $filterInfo .= ' | Typen: ' . htmlspecialchars(implode(', ', $aktiveTypen));
-		if (!empty($aktiveSender)) $filterInfo .= ' | Sender: ' . htmlspecialchars(implode(', ', $aktiveSender));
-		if ($textFilter !== '')    $filterInfo .= ' | Text: ' . $textFilter;
-		if ($objektFilter !== '')  $filterInfo .= ' | ObjID: ' . $objektFilter;
-
 		return <<<HTML
-<!DOCTYPE html>
-<html lang="de">
-<head><meta charset="utf-8">
+<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:Arial,sans-serif;font-size:13px;background:#1a1a1a;color:#ccc}
-.bar{background:#222;border-bottom:1px solid #333;padding:8px 10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-select{background:#2a2a2a;color:#ccc;border:1px solid #444;border-radius:4px;padding:4px 6px;font-size:12px;cursor:pointer}
-.btn{display:inline-block;background:#2a2a2a;color:#ccc;border:1px solid #444;border-radius:4px;padding:5px 10px;font-size:12px;text-decoration:none;cursor:pointer}
-.btn:hover{background:#333;color:#fff}
 .meta{padding:6px 10px;font-size:11px;color:#666;background:#1e1e1e;border-bottom:1px solid #2a2a2a}
 table{width:100%;border-collapse:collapse}
 thead th{background:#7a4400;color:#fff;padding:7px 8px;text-align:left;font-size:12px;position:sticky;top:0}
 tbody tr:nth-child(even){background:#1e1e1e}
 tbody tr:hover{background:#252525}
-.tbl-wrap{overflow:auto;max-height:60vh}
-.filter-box{background:#1e1e1e;border:1px solid #333;border-radius:4px;padding:8px;min-width:180px}
-.filter-scroll{max-height:180px;overflow-y:auto}
-details summary{cursor:pointer;color:#aaa;font-size:12px;padding:4px 0}
-details summary:hover{color:#fff}
-</style>
-</head>
-<body>
-
-<!-- Steuerleis­te: Select → onchange navigiert zur Hook-URL -->
-<div class="bar">
-  <select onchange="location.href=this.value" title="Logdatei">{$logOpts}</select>
-  <select onchange="location.href=this.value" title="Zeilen/Seite">{$zeilenOpts}</select>
-  <select onchange="location.href=this.value" title="Modus">{$modusOpts}</select>
-  <a class="btn" href="{$urlReload}">&#8635; Aktualisieren</a>
-  <a class="btn"{$disNeu} href="{$urlNeu}">&#8249; Neuere</a>
-  <a class="btn"{$disAlt} href="{$urlAlt}">Ältere &#8250;</a>
-</div>
-
-<!-- Filter-Formular -->
-<form method="GET" action="{$h}">
-<input type="hidden" name="a" value="FilterAnwenden">
-<div class="bar" style="flex-wrap:wrap;gap:12px;padding:10px">
-  <details>
-    <summary>Meldungstyp {$typSummary}</summary>
-    <div class="filter-box"><div class="filter-scroll">{$typChecks}</div></div>
-  </details>
-  <details>
-    <summary>Sender {$sndSummary}</summary>
-    <div class="filter-box"><div class="filter-scroll">{$sndChecks}</div></div>
-  </details>
-  <div>
-    <div style="font-size:11px;color:#888;margin-bottom:3px">ObjektID</div>
-    <input type="text" name="oi" value="{$objektFilter}" placeholder="z. B. 12345" style="background:#2a2a2a;color:#ccc;border:1px solid #444;border-radius:4px;padding:4px 6px;font-size:12px;width:130px">
-  </div>
-  <div>
-    <div style="font-size:11px;color:#888;margin-bottom:3px">Meldung enthält</div>
-    <input type="text" name="tf" value="{$textFilter}" placeholder="Freitext" style="background:#2a2a2a;color:#ccc;border:1px solid #444;border-radius:4px;padding:4px 6px;font-size:12px;width:150px">
-  </div>
-  <button type="submit" class="btn" style="align-self:flex-end">Filter anwenden</button>
-</div>
-</form>
-
-<!-- Metadaten -->
+.tbl-wrap{overflow:auto;max-height:80vh}
+</style></head><body>
 <div class="meta">
-  Datei: {$logDatei} &nbsp;|&nbsp; Größe: {$dateiGroesse} &nbsp;|&nbsp;
-  Seite: {$seite} &nbsp;|&nbsp; Treffer: {$metaTreffer} &nbsp;|&nbsp;
-  Tab: {$ladezeitTab} ms &nbsp;|&nbsp; Stand: {$ts}{$filterInfo}
+  &#128196; <b>{$logDatei}</b> &nbsp;|&nbsp; {$dateiGroesse} &nbsp;|&nbsp;
+  Seite:&nbsp;{$seite} &nbsp;|&nbsp; Treffer:&nbsp;{$metaTreffer} &nbsp;|&nbsp;
+  Tab:&nbsp;{$ladezeitTab}&nbsp;ms &nbsp;|&nbsp; Stand:&nbsp;{$ts}{$filterInfo}
 </div>
-
-<!-- Tabelle -->
-<div class="tbl-wrap">
-<table>
+<div class="tbl-wrap"><table>
 <thead><tr>
-  <th style="width:145px">Zeit</th>
-  <th style="width:75px">ObjektID</th>
-  <th style="width:95px">Typ</th>
-  <th style="width:190px">Sender</th>
-  <th>Meldung</th>
+  <th style="width:145px">Zeit</th><th style="width:75px">ObjektID</th>
+  <th style="width:95px">Typ</th><th style="width:190px">Sender</th><th>Meldung</th>
 </tr></thead>
 <tbody>{$tbody}</tbody>
-</table>
-</div>
+</table></div>
 </body></html>
 HTML;
 	}
-
 
 	private function aktualisiereVisualisierung(): void
 	{
@@ -812,12 +639,12 @@ HTML;
 				0
 			);
 
-			// UpdateVisualizationValue nur versuchen (Tile-Visu ist deaktiviert → gibt false zurück, kein Fehler)
+			// Tile-Visu deaktiviert - Fehler ignorieren
 			@$this->UpdateVisualizationValue(
 				json_encode($daten, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
 			);
 
-			// HTML-Box für IPSView befüllen (Hauptausgabe)
+			// HTML-Box für IPSView befüllen
 			$this->SetValue('HTMLBOX', $this->erstelleHtmlFuerIPSView($daten));
 		} catch (\Throwable $e) {
 			$status = $this->leseStatus();
@@ -829,10 +656,7 @@ HTML;
 			}
 
 			$this->SendDebug('aktualisiereVisualisierung FEHLER', $e->getMessage(), 0);
-			// Fehler direkt in HTMLBOX schreiben statt Exception zu werfen
-			$msg = htmlspecialchars($e->getMessage());
-			$trace = htmlspecialchars(substr($e->getTraceAsString(), 0, 800));
-			$this->SetValue('HTMLBOX', "<div style='padding:10px;color:#f88;font-family:monospace;font-size:11px;background:#1a1a1a'><b>FEHLER:</b> {$msg}<br><br><pre style='color:#888'>{$trace}</pre></div>");
+			throw new Exception('Fehler beim Aktualisieren der Visualisierung: ' . $e->getMessage());
 		}
 	}
 
@@ -849,30 +673,8 @@ HTML;
 	private function erstelleVisualisierungsDaten(): array
 	{
 		$status = $this->leseStatus();
-
-				// IPSView: Filtermetadaten direkt laden (synchron, ohne Signatur-Cache-Prüfung)
 		$filterMetadaten = $this->leseFilterMetadatenFuerAnzeige();
-		if (empty($filterMetadaten['verfuegbareFilterTypen']) && empty($filterMetadaten['verfuegbareSender'])) {
-			$logDateiCheck = $this->leseAktuelleLogDatei();
-			if (is_file($logDateiCheck)) {
-				$ermittelt = $this->ermittleFilterMetadaten();
-				$filterMetadaten['verfuegbareFilterTypen'] = $ermittelt['verfuegbareFilterTypen'] ?? [];
-				$filterMetadaten['verfuegbareSender']      = $ermittelt['verfuegbareSender'] ?? [];
-				// Cache schreiben damit nächster Aufruf schneller ist
-				$metaRoh = $this->leseFilterMetadatenRoh();
-				$metaRoh['verfuegbareFilterTypen'] = $filterMetadaten['verfuegbareFilterTypen'];
-				$metaRoh['verfuegbareSender']      = $filterMetadaten['verfuegbareSender'];
-				$metaRoh['gesamtZeilenCache']      = (int) ($ermittelt['gesamtZeilen'] ?? -1);
-				$metaRoh['dateiGroesseCache']      = (int) filesize($logDateiCheck);
-				$metaRoh['dateiMTimeCache']        = (int) filemtime($logDateiCheck);
-				$metaRoh['ladezeitMs']             = 0;
-				$metaRoh['laedt']                  = false;
-				$metaRoh['signatur']               = $this->ermittleFilterMetadatenSignatur($this->leseStatus());
-				$this->schreibeFilterMetadaten($metaRoh);
-			}
-		}
-
-		$logDatei = $this->leseAktuelleLogDatei();
+		$logDatei = $this->ReadPropertyString('LogDatei');
 		$maxZeilen = $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50));
 		$betriebsmodus = $this->ermittleAktivenModus();
 
@@ -955,7 +757,7 @@ HTML;
 	{
 		$status = $this->leseStatus();
 		$filterMetadaten = $this->leseFilterMetadatenFuerAnzeige();
-		$logDatei = $this->leseAktuelleLogDatei();
+		$logDatei = $this->ReadPropertyString('LogDatei');
 		$maxZeilen = $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50));
 		$betriebsmodus = $this->ermittleAktivenModus();
 
@@ -1064,7 +866,7 @@ HTML;
 			$this->SendDebug('LadeFilterOptionen',
 				sprintf(
 					'modus-blockiert datei=%s meldung=%s',
-					basename($this->leseAktuelleLogDatei()),
+					basename($this->ReadPropertyString('LogDatei')),
 					(string) ($modusPruefung['fehlermeldung'] ?? '')
 				),
 				0
@@ -1077,7 +879,7 @@ HTML;
 			return;
 		}
 
-		$logDatei = $this->leseAktuelleLogDatei();
+		$logDatei = $this->ReadPropertyString('LogDatei');
 		$status = $this->leseStatus();
 		$meta = $this->leseFilterMetadatenRoh();
 
@@ -1200,7 +1002,7 @@ HTML;
 			$this->SendDebug('ZaehleTreffer',
 				sprintf(
 					'modus-blockiert datei=%s meldung=%s',
-					basename($this->leseAktuelleLogDatei()),
+					basename($this->ReadPropertyString('LogDatei')),
 					(string) ($modusPruefung['fehlermeldung'] ?? '')
 				),
 				0
@@ -1214,7 +1016,7 @@ HTML;
 		}
 
 		$status = $this->leseStatus();
-		$logDatei = $this->leseAktuelleLogDatei();
+		$logDatei = $this->ReadPropertyString('LogDatei');
 
 		if (!is_file($logDatei)) {
 			$aktuellerStatus = $this->leseStatus();
@@ -1435,7 +1237,7 @@ HTML;
 			array_pop($zeilen);
 		}
 
-		$logDatei = $this->leseAktuelleLogDatei();
+		$logDatei = $this->ReadPropertyString('LogDatei');
 		$dateiGroesse = is_file($logDatei) ? (int) filesize($logDatei) : 0;
 		$dateiMTime = is_file($logDatei) ? (int) filemtime($logDatei) : 0;
 		$listenSignatur = $this->ermittleListenCacheSignatur($status);
@@ -1617,7 +1419,7 @@ HTML;
 	private function ermittleListenCacheSignatur(array $status): string
 	{
 		return md5(json_encode([
-			'logDatei'        => $this->leseAktuelleLogDatei(),
+			'logDatei'        => $this->ReadPropertyString('LogDatei'),
 			'seite'           => max(0, (int) ($status['seite'] ?? 0)),
 			'maxZeilen'       => $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50)),
 			'filterTypen'     => $this->normalisiereFilterTypen($status['filterTypen'] ?? []),
@@ -1843,7 +1645,7 @@ HTML;
 	private function leseFilterMetadatenFuerAnzeige(): array
 	{
 		$roh = $this->leseFilterMetadatenRoh();
-		$logDatei = $this->leseAktuelleLogDatei();
+		$logDatei = $this->ReadPropertyString('LogDatei');
 		$status = $this->leseStatus();
 
 		if (!is_file($logDatei)) {
@@ -1938,7 +1740,7 @@ HTML;
 		if ($attr !== '' && is_file($attr)) {
 			return $attr;
 		}
-		return $this->leseAktuelleLogDatei();
+		return $this->ReadPropertyString('LogDatei');
 	}
 
 		private function ermittleAktivenModus(): string
@@ -1963,7 +1765,7 @@ HTML;
 	private function pruefeModusVerwendbarkeit(): array
 	{
 		$modus = $this->ermittleAktivenModus();
-		$logDatei = $this->leseAktuelleLogDatei();
+		$logDatei = $this->ReadPropertyString('LogDatei');
 
 		if (!is_file($logDatei)) {
 			return [
@@ -2034,13 +1836,13 @@ HTML;
 		if ($modus !== 'standard') {
 			return md5(json_encode([
 				'modus'   => $modus,
-				'logDatei'=> $this->leseAktuelleLogDatei()
+				'logDatei'=> $this->ReadPropertyString('LogDatei')
 			], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
 		}
 
 		return md5(json_encode([
 			'modus'          => $modus,
-			'logDatei'       => $this->leseAktuelleLogDatei(),
+			'logDatei'       => $this->ReadPropertyString('LogDatei'),
 			'objektIdFilter' => $this->normalisiereObjektIdFilterString((string) ($status['objektIdFilter'] ?? '')),
 			'textFilter'     => trim((string) ($status['textFilter'] ?? '')),
 			'filterTypen'    => $this->normalisiereFilterTypen($status['filterTypen'] ?? []),

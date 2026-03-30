@@ -1,18 +1,13 @@
-# Log Analyzer IPSView
+# LogAnalyzer
 
 [![IP-Symcon is awesome!](https://img.shields.io/badge/IP--Symcon-8.1-blue.svg)](https://www.symcon.de)
 ![License](https://img.shields.io/badge/license-Apache2.0-blue.svg)
 
-> **Diese Version ist die IPSView-Variante des LogAnalyzers.**  
-> Statt der Tile-Kachelansicht wird die Ausgabe als HTML in eine **String-Variable mit dem Profil `~HTMLBox`** geschrieben.  
-> Diese Variable kann direkt in **IPSView** als HTML-Box eingebunden werden.  
-> Für die originale Tile View bitte das Original-Repository nutzen: https://github.com/BugForgeNerd/LogAnalyzer
-
-Das Modul **Log Analyzer IPSView** ermöglicht die Analyse und Filterung von IP-Symcon Logdateien – in dieser Edition über eine HTML-Box für IPSView.  
+Das Modul **LogAnalyzer** ermöglicht die Analyse und Filterung von IP-Symcon Logdateien direkt im WebFront.  
 Logeinträge können gefiltert, durchsucht und seitenweise geladen werden. Dabei stehen verschiedene Betriebsmodi zur Verfügung.
 
-> **Hinweis (IPSView-Edition):** Dieses Modul schreibt die Ausgabe in eine HTML-Box Variable (`HTMLBOX`).  
-> Diese Variable in IPSView als **HTML-Box** einbinden. Die Tile-Kachelansicht wird in dieser Edition nicht verwendet.
+> **Hinweis:** Dieses Modul ist ausschließlich für die **neue Kachelansicht (Tile View)** von IP-Symcon entwickelt.  
+> Die klassische WebFront-Ansicht wird **nicht unterstützt**.
 > Linux und Linux in VMs, sowie Windows basierte Systeme werden voll unterstützt. Docker, MAC, PI verwenden kein "tac" und werden auf grep umgestellt, was nicht ganz so viel Leistung vei großen bringt. Log-Dateien bis 6 MB können mit PHP eingebauten Mitteln auf allen Systemen verarbeitet werden. Eine Ultra-schnelle Datenanalyse ist bereits als Erweiterung in Arbeit.
 
 ---
@@ -66,7 +61,7 @@ Das Modul stellt drei Betriebsmodi zur Verfügung:
 
 ## Unterstützte Betriebssysteme
 
-Der Log Analyzer IPSView läuft auf allen von IP-Symcon unterstützten Systemen:
+Der LogAnalyzer läuft auf allen von IP-Symcon unterstützten Systemen:
 
 - Linux (empfohlen für große Logdateien)
 - Windows
@@ -118,7 +113,7 @@ Hinweis:
 
 ## 3. Software-Installation
 
-- Über den Module Store das Modul **Log Analyzer IPSView** installieren  
+- Über den Module Store das Modul **LogAnalyzer** installieren  
 - Alternativ über das Module Control eine entsprechende Repository-URL hinzufügen  
 
 ---
@@ -146,33 +141,6 @@ Dieses Modul legt **keine eigenen Statusvariablen oder Profile** an.
 Die gesamte Darstellung erfolgt direkt über die Visualisierung.
 
 ---
-
-## 6. Visualisierung
-
-### IPSView HTML-Box
-
-Diese Modul-Edition schreibt den Log-Output als fertiges HTML in die Statusvariable **`HTMLBOX`** (Typ: String, Profil: `~HTMLBox`).
-
-**Einbindung in IPSView:**
-1. Modul-Instanz anlegen und konfigurieren
-2. Im IP-Symcon Objektbaum die erzeugte Variable `HTMLBOX` unter der Instanz suchen
-3. In IPSView ein **HTML-Box Element** einfügen und auf diese Variable zeigen
-4. Der Auto-Refresh-Timer aktualisiert die HTML-Box automatisch (Einstellung in Sekunden)
-
-Die Ausgabe ist im Dark-Theme gehalten und zeigt je Log-Level eine eigene Farbe:
-
-| Level   | Farbe       |
-|---------|-------------|
-| DEBUG   | Hellblau    |
-| INFO    | Hellgrün    |
-| WARNING | Orange      |
-| ERROR   | Rot         |
-| FATAL   | Dunkelrot   |
-| NOTIFY  | Violett     |
-| SUCCESS | Mintgrün    |
-
-> Die Filterung (Typ, Sender, Freitext, Objekt-ID) ist weiterhin über `RequestAction` möglich und kann  
-> z. B. per Skript oder IPSView-Schaltflächen gesteuert werden.
 
 ## 6. Visualisierung
 
