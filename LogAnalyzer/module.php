@@ -115,6 +115,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
     {
 		// nicht löschen
         parent::Destroy();
+		$this->RemoveHook('/hook/LogAnalyzerIPSView_' . $this->InstanceID);
     }
 
     /**
@@ -556,6 +557,12 @@ class LogAnalyzerIPSView extends IPSModuleStrict
      * Parameter: keine
      * Rückgabewert: void
      */
+	public function ProcessHookData()
+	{
+		// Absolut minimal - nur ausgeben um zu testen ob Hook aufgerufen wird
+		echo $this->GetValue('HTMLBOX');
+	}
+
 	public function AktualisierenVisualisierung(): void
 	{
 		$this->aktualisiereVisualisierung();
