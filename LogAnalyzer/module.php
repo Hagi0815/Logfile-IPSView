@@ -13,13 +13,11 @@
 */
 
 declare(strict_types=1);
-require_once __DIR__ . '/libs/LogAnalyzerHookTrait.php';
 require_once __DIR__ . '/libs/LogAnalyzerStandardTrait.php';
 require_once __DIR__ . '/libs/LogAnalyzerSystemTrait.php';
 
 class LogAnalyzerIPSView extends IPSModuleStrict
 {
-	use LogAnalyzerHookTrait;
 	use LogAnalyzerStandardTrait;
 	use LogAnalyzerSystemTrait;
 
@@ -103,7 +101,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
     {
 		// nicht löschen
         parent::Destroy();
-		$this->RemoveHook('/hook/LogAnalyzerIPSView_' . $this->InstanceID);
     }
 
     /**
@@ -120,8 +117,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
     {
 		// nicht löschen
         parent::ApplyChanges();
-
-		$this->RegisterHook('/hook/LogAnalyzerIPSView_' . $this->InstanceID);
 
 		// Tile Visu nutzen
         // Tile-Visualisierung deaktiviert (IPSView HTML-Box wird verwendet)
