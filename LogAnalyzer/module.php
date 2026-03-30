@@ -48,6 +48,9 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		$this->RegisterPropertyString('IpsUsername', '');
 		$this->RegisterPropertyString('IpsPassword', '');
 
+		// Aktuelle Logdatei als Attribut (überschreibt Property ohne ApplyChanges)
+		$this->RegisterAttributeString('AktuelleLogDatei', '');
+
 		$this->RegisterAttributeString(self::ATTR_STATUS, json_encode([
 			'seite'                    => 0,
 			'maxZeilen'                => 50,
@@ -122,6 +125,12 @@ class LogAnalyzerIPSView extends IPSModuleStrict
         $this->SetTimerInterval('VisualisierungAktualisieren', $intervall);
 
         $logDatei = $this->ReadPropertyString('LogDatei');
+
+		// Attribut mit Property synchronisieren
+		$attrDatei = trim($this->ReadAttributeString('AktuelleLogDatei'));
+		if ($attrDatei === '' || !is_file($attrDatei)) {
+			$this->WriteAttributeString('AktuelleLogDatei', $logDatei);
+		}
 
 		if (!is_file($logDatei)) {
 			$verfuegbareDateien = $this->ermittleVerfuegbareLogdateien();
@@ -334,12 +343,8 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 						throw new Exception('Ungültige Logdatei ausgewählt: ' . $datei);
 					}
 
-					// IPSView: IPS_ApplyChanges würde den Thread abbrechen bevor SetValue('HTMLBOX') erreicht wird.
-					// Property direkt schreiben und selbst aktualisieren statt ApplyChanges zu nutzen.
-					IPS_SetProperty($this->InstanceID, 'LogDatei', $datei);
-					// Timer-Intervall neu setzen (wie ApplyChanges es täte)
-					$intervall = max(0, $this->ReadPropertyInteger('AutoRefreshSekunden')) * 1000;
-					$this->SetTimerInterval('VisualisierungAktualisieren', $intervall);
+					// Ausgewählte Datei als Attribut speichern (kein ApplyChanges nötig)
+					$this->WriteAttributeString('AktuelleLogDatei', $datei);
 
 					$status = [
 						'seite'                    => 0,
@@ -821,16 +826,33 @@ function laRefreshContent() {
   return rpc('GetValue', {VariableID: HTMLBOX_VAR})
     .then(resp => {
       if (resp && resp.result !== undefined) {
-        // Neues HTML parsen und nur den Body-Inhalt extrahieren
         const parser = new DOMParser();
         const newDoc = parser.parseFromString(resp.result, 'text/html');
-        // wrapper-div aus neuem HTML holen
         const newWrapper = newDoc.querySelector('.la-wrap');
         const curWrapper = document.querySelector('.la-wrap');
         if (newWrapper && curWrapper) {
           curWrapper.innerHTML = newWrapper.innerHTML;
+          // Multi-Select Dropdowns neu initialisieren nach DOM-Update
+          const newScripts = newDoc.querySelectorAll('script');
+          newScripts.forEach(s => {
+            // VERF_TYPEN/VERF_SENDER aus neuem HTML extrahieren und msFill aufrufen
+            const m1 = s.textContent.match(/const VERF_TYPEN\s*=\s*(\[.*?\]);/s);
+            const m2 = s.textContent.match(/const VERF_SENDER\s*=\s*(\[.*?\]);/s);
+            const m3 = s.textContent.match(/const AKT_TYPEN\s*=\s*(\[.*?\]);/s);
+            const m4 = s.textContent.match(/const AKT_SENDER\s*=\s*(\[.*?\]);/s);
+            if (m1 && m2) {
+              try {
+                const vt = JSON.parse(m1[1]);
+                const vs = JSON.parse(m2[1]);
+                const at = m3 ? JSON.parse(m3[1]) : [];
+                const as2 = m4 ? JSON.parse(m4[1]) : [];
+                msFill('msTypOpts', vt, at);
+                msFill('msSndOpts', vs, as2);
+              } catch(e) { console.warn('msFill init Fehler', e); }
+            }
+          });
         } else {
-          // Fallback: gesamtes HTML ersetzen
+          // Fallback: gesamtes HTML neu schreiben
           document.open();
           document.write(resp.result);
           document.close();
@@ -1014,7 +1036,7 @@ HTML;
 		// IPSView: Filtermetadaten synchron laden wenn Cache leer oder ungültig
 		$filterMetadaten = $this->leseFilterMetadatenFuerAnzeige();
 		if (!(bool) ($filterMetadaten['geladen'] ?? false)) {
-			$logDateiCheck = $this->ReadPropertyString('LogDatei');
+			$logDateiCheck = $this->leseAktuelleLogDatei();
 			if (is_file($logDateiCheck)) {
 				$dateiGroesseCheck = (int) filesize($logDateiCheck);
 				$dateiMTimeCheck   = (int) filemtime($logDateiCheck);
@@ -1033,7 +1055,7 @@ HTML;
 			}
 		}
 
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktuelleLogDatei();
 		$maxZeilen = $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50));
 		$betriebsmodus = $this->ermittleAktivenModus();
 
@@ -1116,7 +1138,7 @@ HTML;
 	{
 		$status = $this->leseStatus();
 		$filterMetadaten = $this->leseFilterMetadatenFuerAnzeige();
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktuelleLogDatei();
 		$maxZeilen = $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50));
 		$betriebsmodus = $this->ermittleAktivenModus();
 
@@ -1225,7 +1247,7 @@ HTML;
 			$this->SendDebug('LadeFilterOptionen',
 				sprintf(
 					'modus-blockiert datei=%s meldung=%s',
-					basename($this->ReadPropertyString('LogDatei')),
+					basename($this->leseAktuelleLogDatei()),
 					(string) ($modusPruefung['fehlermeldung'] ?? '')
 				),
 				0
@@ -1238,7 +1260,7 @@ HTML;
 			return;
 		}
 
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktuelleLogDatei();
 		$status = $this->leseStatus();
 		$meta = $this->leseFilterMetadatenRoh();
 
@@ -1361,7 +1383,7 @@ HTML;
 			$this->SendDebug('ZaehleTreffer',
 				sprintf(
 					'modus-blockiert datei=%s meldung=%s',
-					basename($this->ReadPropertyString('LogDatei')),
+					basename($this->leseAktuelleLogDatei()),
 					(string) ($modusPruefung['fehlermeldung'] ?? '')
 				),
 				0
@@ -1375,7 +1397,7 @@ HTML;
 		}
 
 		$status = $this->leseStatus();
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktuelleLogDatei();
 
 		if (!is_file($logDatei)) {
 			$aktuellerStatus = $this->leseStatus();
@@ -1596,7 +1618,7 @@ HTML;
 			array_pop($zeilen);
 		}
 
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktuelleLogDatei();
 		$dateiGroesse = is_file($logDatei) ? (int) filesize($logDatei) : 0;
 		$dateiMTime = is_file($logDatei) ? (int) filemtime($logDatei) : 0;
 		$listenSignatur = $this->ermittleListenCacheSignatur($status);
@@ -1778,7 +1800,7 @@ HTML;
 	private function ermittleListenCacheSignatur(array $status): string
 	{
 		return md5(json_encode([
-			'logDatei'        => $this->ReadPropertyString('LogDatei'),
+			'logDatei'        => $this->leseAktuelleLogDatei(),
 			'seite'           => max(0, (int) ($status['seite'] ?? 0)),
 			'maxZeilen'       => $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50)),
 			'filterTypen'     => $this->normalisiereFilterTypen($status['filterTypen'] ?? []),
@@ -2004,7 +2026,7 @@ HTML;
 	private function leseFilterMetadatenFuerAnzeige(): array
 	{
 		$roh = $this->leseFilterMetadatenRoh();
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktuelleLogDatei();
 		$status = $this->leseStatus();
 
 		if (!is_file($logDatei)) {
@@ -2093,7 +2115,16 @@ HTML;
      * Parameter: keine
      * Rückgabewert: string
      */
-	private function ermittleAktivenModus(): string
+	private function leseAktuelleLogDatei(): string
+	{
+		$attr = trim($this->ReadAttributeString('AktuelleLogDatei'));
+		if ($attr !== '' && is_file($attr)) {
+			return $attr;
+		}
+		return $this->leseAktuelleLogDatei();
+	}
+
+		private function ermittleAktivenModus(): string
 	{
 		$modus = strtolower(trim($this->ReadPropertyString('Betriebsmodus')));
 
@@ -2115,7 +2146,7 @@ HTML;
 	private function pruefeModusVerwendbarkeit(): array
 	{
 		$modus = $this->ermittleAktivenModus();
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktuelleLogDatei();
 
 		if (!is_file($logDatei)) {
 			return [
@@ -2186,13 +2217,13 @@ HTML;
 		if ($modus !== 'standard') {
 			return md5(json_encode([
 				'modus'   => $modus,
-				'logDatei'=> $this->ReadPropertyString('LogDatei')
+				'logDatei'=> $this->leseAktuelleLogDatei()
 			], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
 		}
 
 		return md5(json_encode([
 			'modus'          => $modus,
-			'logDatei'       => $this->ReadPropertyString('LogDatei'),
+			'logDatei'       => $this->leseAktuelleLogDatei(),
 			'objektIdFilter' => $this->normalisiereObjektIdFilterString((string) ($status['objektIdFilter'] ?? '')),
 			'textFilter'     => trim((string) ($status['textFilter'] ?? '')),
 			'filterTypen'    => $this->normalisiereFilterTypen($status['filterTypen'] ?? []),
