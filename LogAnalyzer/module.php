@@ -16,7 +16,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/libs/LogAnalyzerStandardTrait.php';
 require_once __DIR__ . '/libs/LogAnalyzerSystemTrait.php';
 
-class LogAnalyzerIPSView extends IPSModule
+class LogAnalyzerIPSView extends IPSModuleStrict
 {
 	use LogAnalyzerStandardTrait;
 	use LogAnalyzerSystemTrait;
@@ -118,7 +118,7 @@ class LogAnalyzerIPSView extends IPSModule
 		// nicht löschen
         parent::ApplyChanges();
 
-		// WebHook für HTML-Box registrieren
+		// WebHook registrieren
 		$this->RegisterHook('/hook/LogAnalyzerIPSView_' . $this->InstanceID);
 
 		// Tile Visu nutzen
@@ -495,37 +495,61 @@ class LogAnalyzerIPSView extends IPSModule
 
 
 
-	/**
-	 * ProcessHookData – IPS WebHook Handler
-	 */
-	public function ProcessHookData()
+
+	public function ProcessHookData(): void
 	{
-		$aktion = isset($_GET['a']) ? trim((string) $_GET['a']) : '';
+		$aktion = isset($_GET['a']) ? trim($_GET['a']) : '';
+		$status = $this->leseStatus();
 
 		try {
 			if ($aktion === 'FilterAnwenden') {
-				$filterTypen  = isset($_GET['ft']) ? array_values(array_filter((array) $_GET['ft'])) : [];
-				$senderFilter = isset($_GET['sf']) ? array_values(array_filter((array) $_GET['sf'])) : [];
-				$wert = json_encode([
-					'filterTypen'    => $filterTypen,
-					'objektIdFilter' => trim((string) ($_GET['oi'] ?? '')),
-					'senderFilter'   => $senderFilter,
-					'textFilter'     => trim((string) ($_GET['tf'] ?? '')),
-				], JSON_UNESCAPED_UNICODE);
-				$this->RequestAction('FilterAnwenden', $wert);
-			} elseif (in_array($aktion, ['LogDateiAuswaehlen','SetzeMaxZeilen','SetzeBetriebsmodus','SeiteVor','SeiteZurueck','Aktualisieren'], true)) {
-				$wert = trim((string) ($_GET['v'] ?? ''));
-				if ($aktion === 'SetzeMaxZeilen') {
-					$wert = (int) $wert;
+				$ft = isset($_GET['ft']) ? array_values(array_filter((array)$_GET['ft'])) : [];
+				$sf = isset($_GET['sf']) ? array_values(array_filter((array)$_GET['sf'])) : [];
+				$status['filterTypen']    = $ft;
+				$status['objektIdFilter'] = trim((string)($_GET['oi'] ?? ''));
+				$status['senderFilter']   = $sf;
+				$status['textFilter']     = trim((string)($_GET['tf'] ?? ''));
+				$status['seite']          = 0;
+				$status['trefferGesamt']  = -1;
+				$this->schreibeStatus($status);
+				$this->leereSeitenCache();
+			} elseif ($aktion === 'SeiteVor') {
+				$status['seite'] = max(0, (int)$status['seite'] + 1);
+				$this->schreibeStatus($status);
+			} elseif ($aktion === 'SeiteZurueck') {
+				$status['seite'] = max(0, (int)$status['seite'] - 1);
+				$this->schreibeStatus($status);
+			} elseif ($aktion === 'SetzeMaxZeilen') {
+				$status['maxZeilen'] = $this->normalisiereMaxZeilen((int)($_GET['v'] ?? 50));
+				$status['seite'] = 0;
+				$this->schreibeStatus($status);
+			} elseif ($aktion === 'LogDateiAuswaehlen') {
+				$datei = trim((string)($_GET['v'] ?? ''));
+				if (is_file($datei)) {
+					$this->WriteAttributeString('AktuelleLogDatei', $datei);
+					$status['seite'] = 0;
+					$status['trefferGesamt'] = -1;
+					$this->schreibeStatus($status);
+					$this->schreibeFilterMetadaten([
+						'verfuegbareFilterTypen' => [], 'verfuegbareSender' => [],
+						'gesamtZeilenCache' => -1, 'dateiGroesseCache' => 0,
+						'dateiMTimeCache' => 0, 'ladezeitMs' => 0,
+						'laedt' => false, 'signatur' => ''
+					]);
+					$this->leereSeitenCache();
 				}
-				$this->RequestAction($aktion, $wert);
-			} else {
-				$this->aktualisiereVisualisierung();
+			} elseif ($aktion === 'SetzeBetriebsmodus') {
+				$modus = strtolower(trim((string)($_GET['v'] ?? 'standard')));
+				if (in_array($modus, ['standard', 'system'], true)) {
+					IPS_SetProperty($this->InstanceID, 'Betriebsmodus', $modus);
+				}
 			}
 		} catch (\Throwable $e) {
-			// Fehler ignorieren, einfach aktuellen Stand ausgeben
+			$this->SendDebug('Hook Fehler', $e->getMessage(), 0);
 		}
 
+		// Visualisierung aktualisieren und ausgeben
+		$this->aktualisiereVisualisierung();
 		echo $this->GetValue('HTMLBOX');
 	}
 
