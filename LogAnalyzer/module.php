@@ -454,7 +454,12 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			throw new Exception('Unbekannte Aktion: ' . $Ident);
 		} catch (\Throwable $e) {
 			$this->SendDebug('RequestAction FEHLER', $e->getMessage(), 0);
-			throw $e;}
+			try {
+				$msg   = htmlspecialchars($e->getMessage());
+				$trace = htmlspecialchars(substr($e->getTraceAsString(), 0, 800));
+				$this->SetValue('HTMLBOX', "<div style='padding:10px;color:#f88;font-family:monospace;font-size:11px;background:#1a1a1a'><b>RequestAction FEHLER:</b> {$msg}<br><br><pre style='color:#888'>{$trace}</pre></div>");
+			} catch (\Throwable $ignored) {}
+		}
 	}
 
     /**
@@ -469,7 +474,14 @@ class LogAnalyzerIPSView extends IPSModuleStrict
      */
 	public function AktualisierenVisualisierung(): void
 	{
-		$this->aktualisiereVisualisierung();
+		// Direkt aufrufen ohne Exception-Propagation
+		try {
+			$this->aktualisiereVisualisierung();
+		} catch (\Throwable $e) {
+			// Fehler in HTMLBOX anzeigen statt Exception zu werfen
+			$msg = htmlspecialchars($e->getMessage());
+			$this->SetValue('HTMLBOX', "<div style='padding:10px;color:#f88;font-family:monospace;background:#1a1a1a'>FEHLER: {$msg}</div>");
+		}
 	}
 
     /**
@@ -952,7 +964,10 @@ HTML;
 			}
 
 			$this->SendDebug('aktualisiereVisualisierung FEHLER', $e->getMessage(), 0);
-			throw new Exception('Fehler beim Aktualisieren der Visualisierung: ' . $e->getMessage());
+			// Fehler direkt in HTMLBOX schreiben statt Exception zu werfen
+			$msg = htmlspecialchars($e->getMessage());
+			$trace = htmlspecialchars(substr($e->getTraceAsString(), 0, 800));
+			$this->SetValue('HTMLBOX', "<div style='padding:10px;color:#f88;font-family:monospace;font-size:11px;background:#1a1a1a'><b>FEHLER:</b> {$msg}<br><br><pre style='color:#888'>{$trace}</pre></div>");
 		}
 	}
 
