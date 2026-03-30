@@ -539,7 +539,8 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 	 */
 	private function erstelleHtmlFuerIPSView(array $daten): string
 	{
-		$instanzId  = $this->InstanceID;
+		$instanzId   = $this->InstanceID;
+		$htmlboxVarId = (int) $this->GetIDForIdent('HTMLBOX');
 		$status     = is_array($daten['status'] ?? null) ? $daten['status'] : [];
 		$zeilen     = is_array($daten['zeilen'] ?? null) ? $daten['zeilen'] : [];
 		$logDatei   = (string) ($daten['logDatei'] ?? '');
@@ -781,7 +782,8 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
 </div></div>
 
 <script>
-const IPS_ID   = {$instanzId};
+const IPS_ID      = {$instanzId};
+const HTMLBOX_VAR = {$htmlboxVarId};
 const RPC_URL  = '{$rpcUrl}';
 const HAS_AUTH = {$hasAuth};
 const IPS_USER = {$ipsUserJson};
@@ -790,6 +792,20 @@ const VERF_TYPEN  = {$verfTypen};
 const VERF_SENDER = {$verfSender};
 const AKT_TYPEN   = {$aktiveTypen};
 const AKT_SENDER  = {$aktiveSender};
+
+// IPS JSON-RPC Hilfsfunktion
+function rpc(method, params) {
+  const headers = {'Content-Type': 'application/json'};
+  if (HAS_AUTH) {
+    headers['Authorization'] = 'Basic ' + btoa(IPS_USER + ':' + IPS_PASS);
+  }
+  return fetch(RPC_URL, {
+    method: 'POST',
+    credentials: 'include',
+    headers: headers,
+    body: JSON.stringify({jsonrpc: '2.0', method: method, id: 1, params: params})
+  }).then(r => r.json());
+}
 
 // Ladebalken und Buttons sperren
 function laSetLoading(text) {
@@ -800,37 +816,47 @@ function laSetLoading(text) {
   if (loaderTxt) loaderTxt.textContent = text || 'Wird verarbeitet …';
 }
 
-// IPS JSON-RPC Aufruf – sendet Aktion und lädt danach die Seite neu
-function la(ident, value, reloadDelay) {
-  laSetLoading('Wird verarbeitet …');
-  const delay = reloadDelay || 600;
-
-  const headers = {'Content-Type': 'application/json'};
-  if (HAS_AUTH) {
-    headers['Authorization'] = 'Basic ' + btoa(IPS_USER + ':' + IPS_PASS);
-  }
-
-  fetch(RPC_URL, {
-    method: 'POST',
-    credentials: 'include',
-    headers: headers,
-    body: JSON.stringify({
-      jsonrpc: '2.0', method: 'IPS_RequestAction', id: 1,
-      params: {InstanceID: IPS_ID, Ident: ident, Value: value}
+// Neuen HTML-Inhalt aus HTMLBOX-Variable holen und DOM ersetzen
+function laRefreshContent() {
+  return rpc('GetValue', {VariableID: HTMLBOX_VAR})
+    .then(resp => {
+      if (resp && resp.result !== undefined) {
+        // Neues HTML parsen und nur den Body-Inhalt extrahieren
+        const parser = new DOMParser();
+        const newDoc = parser.parseFromString(resp.result, 'text/html');
+        // wrapper-div aus neuem HTML holen
+        const newWrapper = newDoc.querySelector('.la-wrap');
+        const curWrapper = document.querySelector('.la-wrap');
+        if (newWrapper && curWrapper) {
+          curWrapper.innerHTML = newWrapper.innerHTML;
+        } else {
+          // Fallback: gesamtes HTML ersetzen
+          document.open();
+          document.write(resp.result);
+          document.close();
+        }
+      }
     })
-  })
-  .then(r => r.json())
-  .then(resp => {
-    if (resp && resp.error) {
-      console.warn('IPS RPC Antwort-Fehler', resp.error);
-    }
-    // Seite neu laden damit neue HTMLBOX-Daten sichtbar werden
-    setTimeout(() => location.reload(), delay);
-  })
-  .catch(e => {
-    console.error('IPS RPC Fehler', e);
-    setTimeout(() => location.reload(), delay);
-  });
+    .catch(e => console.error('laRefreshContent Fehler', e));
+}
+
+// Aktion senden, dann auf Ergebnis warten und DOM aktualisieren (KEIN location.reload)
+function la(ident, value) {
+  laSetLoading('Wird verarbeitet …');
+
+  rpc('IPS_RequestAction', {InstanceID: IPS_ID, Ident: ident, Value: value})
+    .then(resp => {
+      if (resp && resp.error) {
+        console.warn('IPS RequestAction Fehler', resp.error);
+      }
+      // Kurz warten bis PHP fertig ist, dann neuen Inhalt laden
+      return new Promise(resolve => setTimeout(resolve, 500));
+    })
+    .then(() => laRefreshContent())
+    .catch(e => {
+      console.error('IPS RPC Fehler', e);
+      laRefreshContent();
+    });
 }
 
 // Filter sammeln und senden
