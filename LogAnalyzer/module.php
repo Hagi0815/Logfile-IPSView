@@ -94,6 +94,9 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		$this->RegisterTimer('VisualisierungAktualisieren',0,'LOGANALYZER_AktualisierenVisualisierung($_IPS["TARGET"]);');
 		// HTML-Box Variable für IPSView
 		$this->RegisterVariableString('HTMLBOX', 'Log Anzeige', '~HTMLBox');
+
+		// WebHook für HTML-Box Interaktion registrieren
+		$this->RegisterHook('/hook/LogAnalyzerIPSView_' . $this->InstanceID);
 	}
 
     public function Destroy(): void
@@ -488,6 +491,34 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		$this->SetValue('HTMLBOX', "<html><body style='background:#111;color:#0f0;font-family:monospace;padding:20px'><h2>TEST OK – {$zeit}</h2><p>SetValue funktioniert!</p><p>InstanceID: {$this->InstanceID}</p></body></html>");
 	}
 
+	/**
+	 * ProcessHookData
+	 * Verarbeitet HTTP-Requests aus der HTML-Box (IPSView Interaktion)
+	 */
+	public function ProcessHookData(): void
+	{
+		$aktion = isset($_GET['a']) ? trim((string) $_GET['a']) : '';
+		$wert   = isset($_GET['v']) ? trim((string) $_GET['v']) : '';
+
+		$this->SendDebug('Hook', 'aktion=' . $aktion . ' wert=' . $wert, 0);
+
+		if ($aktion !== '') {
+			try {
+				$this->RequestAction($aktion, $wert);
+			} catch (\Throwable $e) {
+				$this->SendDebug('Hook FEHLER', $e->getMessage(), 0);
+			}
+		} else {
+			// Kein Ident → nur aktualisieren
+			$this->aktualisiereVisualisierung();
+		}
+
+		// Nach Aktion: aktuellen HTMLBOX-Inhalt direkt ausgeben (kein Redirect nötig)
+		header('Content-Type: text/html; charset=utf-8');
+		echo $this->GetValue('HTMLBOX');
+		exit;
+	}
+
 	public function AktualisierenVisualisierung(): void
 	{
 		// Direkt aufrufen ohne Exception-Propagation
@@ -555,8 +586,8 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 	 */
 	private function erstelleHtmlFuerIPSView(array $daten): string
 	{
-		$instanzId   = $this->InstanceID;
-		$htmlboxVarId = (int) $this->GetIDForIdent('HTMLBOX');
+		$instanzId  = $this->InstanceID;
+		$hookUrl    = '/hook/LogAnalyzerIPSView_' . $instanzId;
 		$status     = is_array($daten['status'] ?? null) ? $daten['status'] : [];
 		$zeilen     = is_array($daten['zeilen'] ?? null) ? $daten['zeilen'] : [];
 		$logDatei   = (string) ($daten['logDatei'] ?? '');
@@ -666,12 +697,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 
 		// JSON-RPC URL
 		// RPC URL wird im JS dynamisch aus window.location.hostname gebaut
-		$rpcUrl = '__DYNAMIC__';
-		$ipsUser = (string) $this->ReadPropertyString('IpsUsername');
-		$ipsPass = (string) $this->ReadPropertyString('IpsPassword');
-		$hasAuth    = ($ipsUser !== '') ? 'true' : 'false';
-		$ipsUserJson = json_encode($ipsUser);
-		$ipsPassJson = json_encode($ipsPass);
 
 		return <<<HTML
 <!doctype html><html lang="de"><head><meta charset="utf-8">
@@ -798,95 +823,46 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
 </div></div>
 
 <script>
-const IPS_ID      = {$instanzId};
-const HTMLBOX_VAR = {$htmlboxVarId};
-const RPC_URL     = 'http://' + window.location.hostname + ':3777/api/';
-const HAS_AUTH    = {$hasAuth};
-const IPS_USER    = {$ipsUserJson};
-const IPS_PASS    = {$ipsPassJson};
-const VERF_TYPEN  = {$verfTypen};
-const VERF_SENDER = {$verfSender};
-const AKT_TYPEN   = {$aktiveTypen};
-const AKT_SENDER  = {$aktiveSender};
+const HOOK_URL = '{$hookUrl}';
 
-// IPS JSON-RPC
-function rpc(method, params) {
-  const h = {'Content-Type': 'application/json'};
-  if (HAS_AUTH) h['Authorization'] = 'Basic ' + btoa(IPS_USER + ':' + IPS_PASS);
-  return fetch(RPC_URL, {
-    method: 'POST', credentials: 'include', headers: h,
-    body: JSON.stringify({jsonrpc:'2.0', method:method, id:1, params:params})
-  }).then(r => r.json());
-}
+// Aktion per iframe-Navigation ausführen (kein CORS, kein JS-Fetch nötig)
+function la(aktion, wert) {
+  // Ladebalken anzeigen
+  const loader = document.getElementById('laLoader');
+  const loaderTxt = document.getElementById('laLoaderTxt');
+  if (loader) loader.style.display = 'block';
+  if (loaderTxt) loaderTxt.textContent = 'Wird verarbeitet …';
+  document.querySelectorAll('button,select').forEach(b => b.disabled = true);
 
-// Ladeindikator anzeigen
-function laSetLoading() {
-  document.querySelectorAll('button').forEach(b => b.disabled = true);
-  const l = document.getElementById('laLoader');
-  const t = document.getElementById('laLoaderTxt');
-  if (l) l.style.display = 'block';
-  if (t) t.textContent = 'Wird verarbeitet …';
-}
+  // Hook-URL aufrufen - der IPS-Server führt die Aktion aus und gibt neues HTML zurück
+  const url = HOOK_URL + '?a=' + encodeURIComponent(aktion) + '&v=' + encodeURIComponent(wert || '');
 
-// Fehler direkt in der Box anzeigen
-function laShowError(msg) {
-  document.open('text/html', 'replace');
-  document.write("<html><body style='background:#111;color:#f88;font-family:monospace;padding:20px'><h3>FEHLER</h3><pre>" + msg + "</pre></body></html>");
-  document.close();
-}
-
-// Aktion senden und danach Seite mit neuem HTML-Box-Inhalt ersetzen
-function la(ident, value) {
-  laSetLoading();
-
-  const rpcUrl = 'http://' + window.location.hostname + ':3777/api/';
-
-  // Schritt 1: RequestAction senden
-  rpc('IPS_RequestAction', {InstanceID: IPS_ID, Ident: ident, Value: value})
-    .then(resp => {
-      if (resp && resp.error) {
-        laShowError('IPS_RequestAction Fehler:\n' + JSON.stringify(resp.error, null, 2));
-        return Promise.reject('requestaction_error');
-      }
-      // Schritt 2: 800ms warten
-      return new Promise(r => setTimeout(r, 800));
-    })
-    .then(() => {
-      // Schritt 3: Neuen HTMLBOX-Wert holen
-      return rpc('GetValue', {VariableID: HTMLBOX_VAR});
-    })
-    .then(resp => {
-      if (resp && resp.error) {
-        laShowError('GetValue Fehler:\nHtmlBox VarID=' + HTMLBOX_VAR + '\n' + JSON.stringify(resp.error, null, 2));
-        return;
-      }
-      if (!resp || resp.result === undefined) {
-        laShowError('GetValue: Keine Antwort\nRPC_URL=' + rpcUrl + '\nHtmlBox VarID=' + HTMLBOX_VAR);
-        return;
-      }
-      // Schritt 4: Neues HTML einschreiben
+  fetch(url, {credentials: 'include'})
+    .then(r => r.text())
+    .then(html => {
       document.open('text/html', 'replace');
-      document.write(resp.result);
+      document.write(html);
       document.close();
     })
     .catch(e => {
-      if (e !== 'requestaction_error') {
-        laShowError('Netzwerk-Fehler:\n' + e.toString() + '\n\nRPC_URL=' + rpcUrl + '\nIPS_ID=' + IPS_ID + '\nHtmlBox VarID=' + HTMLBOX_VAR);
-      }
+      if (loader) loader.style.display = 'none';
+      document.querySelectorAll('button,select').forEach(b => b.disabled = false);
+      alert('Fehler: ' + e + '\nURL: ' + url);
     });
 }
 
 // Filter anwenden
 function laFilter() {
-  la('FilterAnwenden', JSON.stringify({
+  const filter = JSON.stringify({
     filterTypen:    msGetSelected('msTypOpts'),
     objektIdFilter: document.getElementById('laObjektId').value.trim(),
     senderFilter:   msGetSelected('msSndOpts'),
     textFilter:     document.getElementById('laText').value.trim()
-  }));
+  });
+  la('FilterAnwenden', filter);
 }
 
-// ObjektID per Doppelklick in Filter übernehmen
+// ObjektID per Doppelklick übernehmen
 function oidInFilter(id) {
   const inp = document.getElementById('laObjektId');
   const ex = inp.value.split(/[\s,;]+/).map(v=>v.trim()).filter(Boolean);
@@ -922,7 +898,6 @@ function msFill(optsId, verfuegbar, aktiv) {
   msUpdateBtn(optsId);
 }
 
-// Multi-Select Button-Text
 function msUpdateBtn(optsId) {
   const btnMap = {msTypOpts:'msTypBtn', msSndOpts:'msSndBtn'};
   const sel = msGetSelected(optsId);
@@ -931,17 +906,19 @@ function msUpdateBtn(optsId) {
   btn.textContent = sel.length === 0 ? 'Alle' : (sel.length <= 2 ? sel.join(', ') : sel.length + ' ausgewählt');
 }
 
-// Multi-Select Werte lesen
 function msGetSelected(optsId) {
   return Array.from(document.querySelectorAll('#' + optsId + ' input[type=checkbox]:checked')).map(i => i.value);
 }
 
-// Dropdowns bei Klick außerhalb schließen
 document.addEventListener('click', () => {
   document.querySelectorAll('.ms-wrap').forEach(w => w.classList.remove('open'));
 });
 
-// Init
+const VERF_TYPEN  = {$verfTypen};
+const VERF_SENDER = {$verfSender};
+const AKT_TYPEN   = {$aktiveTypen};
+const AKT_SENDER  = {$aktiveSender};
+
 msFill('msTypOpts', VERF_TYPEN, AKT_TYPEN);
 msFill('msSndOpts', VERF_SENDER, AKT_SENDER);
 </script>
