@@ -559,16 +559,11 @@ class LogAnalyzerIPSView extends IPSModuleStrict
      * Parameter: keine
      * Rückgabewert: void
      */
+
 	public function ProcessHookData()
 	{
-		// Hook-Handler in separater Datei ohne strict_types
-		$handler = __DIR__ . '/libs/hook_handler.php';
-		if (is_file($handler)) {
-			$module = $this;
-			include $handler;
-		} else {
-			echo $this->GetValue('HTMLBOX');
-		}
+		$m = $this;
+		include __DIR__ . '/libs/hook_handler.php';
 	}
 
 	public function AktualisierenVisualisierung(): void
