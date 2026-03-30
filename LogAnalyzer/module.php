@@ -175,7 +175,7 @@ class LogAnalyzer extends IPSModuleStrict
 			[
 				"type"    => "Label",
 				"width"   => "50%",
-				"caption" => "Diese Software steht unter der Apache-2.0-Lizenz und ist sowohl privat als auch kommerziell kostenlos nutzbar. Sie kann von dir genutzt werden, ohne dass Lizenzgebühren anfallen. Jegliche Haftung für Schäden ist ausgeschlossen. Weitere Informationen zum Modul und seiner Funktionsweise finden Sie auf GitHub: https://github.com/BugForgeNerd/LogAnalyzer"
+				"caption" => "Diese Software steht unter der Apache-2.0-Lizenz und ist sowohl privat als auch kommerziell kostenlos nutzbar. Sie kann von dir genutzt werden, ohne dass Lizenzgebühren anfallen. Jegliche Haftung für Schäden ist ausgeschlossen. Weitere Informationen zum Modul und seiner Funktionsweise finden Sie auf GitHub: Christian Hagedorn"
 			],
 			[
 				"type"    => "Label",

@@ -1,4 +1,4 @@
-# LogAnalyzer – IPSView Edition
+# Log Analyzer IPSView
 
 [![IP-Symcon is awesome!](https://img.shields.io/badge/IP--Symcon-8.1-blue.svg)](https://www.symcon.de)
 ![License](https://img.shields.io/badge/license-Apache2.0-blue.svg)
@@ -8,7 +8,7 @@
 > Diese Variable kann direkt in **IPSView** als HTML-Box eingebunden werden.  
 > Für die originale Tile View bitte das Original-Repository nutzen: https://github.com/BugForgeNerd/LogAnalyzer
 
-Das Modul **LogAnalyzer** ermöglicht die Analyse und Filterung von IP-Symcon Logdateien – in dieser Edition über eine HTML-Box für IPSView.  
+Das Modul **Log Analyzer IPSView** ermöglicht die Analyse und Filterung von IP-Symcon Logdateien – in dieser Edition über eine HTML-Box für IPSView.  
 Logeinträge können gefiltert, durchsucht und seitenweise geladen werden. Dabei stehen verschiedene Betriebsmodi zur Verfügung.
 
 > **Hinweis (IPSView-Edition):** Dieses Modul schreibt die Ausgabe in eine HTML-Box Variable (`HTMLBOX`).  
@@ -66,7 +66,7 @@ Das Modul stellt drei Betriebsmodi zur Verfügung:
 
 ## Unterstützte Betriebssysteme
 
-Der LogAnalyzer läuft auf allen von IP-Symcon unterstützten Systemen:
+Der Log Analyzer IPSView läuft auf allen von IP-Symcon unterstützten Systemen:
 
 - Linux (empfohlen für große Logdateien)
 - Windows
@@ -118,7 +118,7 @@ Hinweis:
 
 ## 3. Software-Installation
 
-- Über den Module Store das Modul **LogAnalyzer** installieren  
+- Über den Module Store das Modul **Log Analyzer IPSView** installieren  
 - Alternativ über das Module Control eine entsprechende Repository-URL hinzufügen  
 
 ---
