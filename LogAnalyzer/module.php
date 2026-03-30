@@ -624,6 +624,19 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 	}
 
 
+	public function ErstelleHtmlDirekt(): string
+	{
+		try {
+			$daten = $this->erstelleVisualisierungsDaten();
+			$status = $this->leseStatus();
+			$daten['status'] = $status;
+			return $this->erstelleHtmlFuerIPSView($daten);
+		} catch (\Throwable $e) {
+			$msg = htmlspecialchars($e->getMessage());
+			return "<html><body style='background:#1a1a1a;color:#f88;padding:20px;font-family:monospace'><b>Fehler:</b> {$msg}</body></html>";
+		}
+	}
+
 	public function AktualisierenVisualisierung(): void
 	{
 		$this->aktualisiereVisualisierung();
@@ -965,8 +978,12 @@ HTML;
 				json_encode($daten, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
 			);
 
-			// HTML-Box für IPSView befüllen
-			$this->SetValue('HTMLBOX', $this->erstelleHtmlFuerIPSView($daten));
+			// HTML-Box für IPSView: iframe auf Hook-URL
+			$hookUrl = '/hook/LogAnalyzerIPSView_' . $this->InstanceID;
+			$this->SetValue('HTMLBOX',
+				"<iframe src='{$hookUrl}' style='width:100%;height:800px;border:none;background:#1a1a1a;' "
+				. "scrolling='auto' frameborder='0'></iframe>"
+			);
 		} catch (\Throwable $e) {
 			$status = $this->leseStatus();
 			if ((bool) ($status['tabellenLadungLaeuft'] ?? false)) {
