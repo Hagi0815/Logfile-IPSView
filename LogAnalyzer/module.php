@@ -828,24 +828,52 @@ function laSetLoading() {
   if (t) t.textContent = 'Wird verarbeitet …';
 }
 
+// Fehler direkt in der Box anzeigen
+function laShowError(msg) {
+  document.open('text/html', 'replace');
+  document.write("<html><body style='background:#111;color:#f88;font-family:monospace;padding:20px'><h3>FEHLER</h3><pre>" + msg + "</pre></body></html>");
+  document.close();
+}
+
 // Aktion senden und danach Seite mit neuem HTML-Box-Inhalt ersetzen
 function la(ident, value) {
   laSetLoading();
+
+  const rpcUrl = 'http://' + window.location.hostname + ':3777/api/';
+
+  // Schritt 1: RequestAction senden
   rpc('IPS_RequestAction', {InstanceID: IPS_ID, Ident: ident, Value: value})
     .then(resp => {
-      if (resp && resp.error) console.warn('RequestAction Fehler', resp.error);
-      // 600ms warten bis PHP SetValue() abgeschlossen hat
-      return new Promise(r => setTimeout(r, 600));
-    })
-    .then(() => rpc('GetValue', {VariableID: HTMLBOX_VAR}))
-    .then(resp => {
-      if (resp && resp.result) {
-        document.open('text/html', 'replace');
-        document.write(resp.result);
-        document.close();
+      if (resp && resp.error) {
+        laShowError('IPS_RequestAction Fehler:\n' + JSON.stringify(resp.error, null, 2));
+        return Promise.reject('requestaction_error');
       }
+      // Schritt 2: 800ms warten
+      return new Promise(r => setTimeout(r, 800));
     })
-    .catch(e => console.error('IPS Fehler', e));
+    .then(() => {
+      // Schritt 3: Neuen HTMLBOX-Wert holen
+      return rpc('GetValue', {VariableID: HTMLBOX_VAR});
+    })
+    .then(resp => {
+      if (resp && resp.error) {
+        laShowError('GetValue Fehler:\nHtmlBox VarID=' + HTMLBOX_VAR + '\n' + JSON.stringify(resp.error, null, 2));
+        return;
+      }
+      if (!resp || resp.result === undefined) {
+        laShowError('GetValue: Keine Antwort\nRPC_URL=' + rpcUrl + '\nHtmlBox VarID=' + HTMLBOX_VAR);
+        return;
+      }
+      // Schritt 4: Neues HTML einschreiben
+      document.open('text/html', 'replace');
+      document.write(resp.result);
+      document.close();
+    })
+    .catch(e => {
+      if (e !== 'requestaction_error') {
+        laShowError('Netzwerk-Fehler:\n' + e.toString() + '\n\nRPC_URL=' + rpcUrl + '\nIPS_ID=' + IPS_ID + '\nHtmlBox VarID=' + HTMLBOX_VAR);
+      }
+    });
 }
 
 // Filter anwenden
