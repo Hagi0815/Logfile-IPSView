@@ -115,6 +115,12 @@ class LogAnalyzerIPSView extends IPSModuleStrict
     {
 		// nicht löschen
         parent::Destroy();
+		// Hook-Script entfernen
+		$ident = 'WebHookScript';
+		$scriptId = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+		if ($scriptId && IPS_ScriptExists($scriptId)) {
+			IPS_DeleteScript($scriptId, true);
+		}
     }
 
     /**
@@ -131,6 +137,8 @@ class LogAnalyzerIPSView extends IPSModuleStrict
     {
 		// nicht löschen
         parent::ApplyChanges();
+
+		$this->erstelleOderAktualisierHookScript();
 
 		// Tile Visu nutzen (deaktiviert - IPSView HTML-Box)
         // $this->SetVisualizationType(1);
@@ -557,6 +565,50 @@ class LogAnalyzerIPSView extends IPSModuleStrict
      * Rückgabewert: void
      */
 
+
+	private function erstelleOderAktualisierHookScript(): void
+	{
+		$instanzId = $this->InstanceID;
+		$hookPfad  = '/hook/LogAnalyzerIPSView_' . $instanzId;
+		$ident     = 'WebHookScript';
+
+		// Script-Code lesen aus externer Datei
+		$handlerFile = __DIR__ . '/libs/hook_handler.php';
+		$handlerCode = is_file($handlerFile) ? file_get_contents($handlerFile) : '<?php echo "Handler fehlt";';
+
+		// Instanz-ID in Script einbetten
+		$scriptCode = "<?php
+// Auto-generiert von Log Analyzer IPSView
+\$LOGANALYZER_INSTANCE_ID = {$instanzId};
+?>
+"
+			. substr($handlerCode, 5); // <?php entfernen
+
+		// Script anlegen oder aktualisieren
+		$scriptId = @IPS_GetObjectIDByIdent($ident, $instanzId);
+		if (!$scriptId || !IPS_ScriptExists((int)$scriptId)) {
+			$scriptId = IPS_CreateScript(0);
+			IPS_SetParent($scriptId, $instanzId);
+			IPS_SetIdent($scriptId, $ident);
+			IPS_SetName($scriptId, 'WebHook Handler');
+			IPS_SetHidden($scriptId, true);
+		}
+
+		IPS_SetScriptContent((int)$scriptId, $scriptCode);
+
+		// Als WebHook registrieren
+		if (function_exists('IPS_GetHookList') && function_exists('IPS_SetHook')) {
+			$vorhandeneHooks = IPS_GetHookList();
+			if (!array_key_exists($hookPfad, $vorhandeneHooks) ||
+				(int)$vorhandeneHooks[$hookPfad] !== (int)$scriptId) {
+				IPS_SetHook($hookPfad, (int)$scriptId);
+			}
+		} else {
+			$this->SendDebug('Hook', 'IPS_SetHook nicht verfügbar - Hook manuell unter /hook/LogAnalyzerIPSView_' . $instanzId . ' registrieren', 0);
+		}
+
+		$this->SendDebug('Hook', "Script-ID={$scriptId} Pfad={$hookPfad}", 0);
+	}
 
 	public function AktualisierenVisualisierung(): void
 	{
