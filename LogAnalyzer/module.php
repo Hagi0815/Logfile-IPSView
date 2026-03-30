@@ -1,6 +1,6 @@
 <?php
 /**
- * NEUSTART des Moduls: MC_ReloadModule(59139, "LogAnalyzer");
+ * NEUSTART des Moduls: MC_ReloadModule(59139, "LogAnalyzerIPSView");
  * sudo /etc/init.d/symcon start
  * sudo /etc/init.d/symcon stop
  * sudo /etc/init.d/symcon restart
@@ -17,7 +17,7 @@ require_once __DIR__ . '/libs/LogAnalyzerStandardTrait.php';
 require_once __DIR__ . '/libs/LogAnalyzerSystemTrait.php';
 require_once __DIR__ . '/libs/LogAnalyzerUltraTrait.php';
 
-class LogAnalyzer extends IPSModuleStrict
+class LogAnalyzerIPSView extends IPSModuleStrict
 {
 	use LogAnalyzerStandardTrait;
 	use LogAnalyzerSystemTrait;
