@@ -118,8 +118,8 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		// nicht löschen
         parent::ApplyChanges();
 
-		// WebHook-Script anlegen und als Hook registrieren
-		$this->registriereHookScript();
+		// WebHook für HTML-Box registrieren
+		$this->RegisterHook('/hook/LogAnalyzerIPSView_' . $this->InstanceID);
 
 		// Tile Visu nutzen
         // Tile-Visualisierung deaktiviert (IPSView HTML-Box wird verwendet)
@@ -494,64 +494,45 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 
 
 
+
 	/**
-	 * registriereHookScript
-	 * Legt ein IPS-Script an das als WebHook erreichbar ist
-	 * und Aktionen an dieses Modul weiterleitet
+	 * ProcessHookWithUserData – wird von IPS aufgerufen wenn der Hook angesprochen wird
 	 */
-	private function registriereHookScript(): void
+	public function ProcessHookWithUserData(array $data): void
 	{
-		$hookName = 'LogAnalyzerIPSView_' . $this->InstanceID;
-		$hookPath = '/hook/' . $hookName;
+		$get    = $data['QUERY'] ?? [];
+		$aktion = isset($get['a']) ? trim((string) $get['a']) : '';
 
-		// Script-Inhalt: Liest GET-Parameter und führt Aktion aus
-		$instanzId = $this->InstanceID;
-		$scriptCode = '<?php
-$instanzId = ' . $instanzId . ';
-$aktion = isset($_GET["a"]) ? trim($_GET["a"]) : "";
+		$this->SendDebug('Hook', 'aktion=' . $aktion . ' data=' . json_encode($get), 0);
 
-if ($aktion === "FilterAnwenden") {
-    $filterTypen  = isset($_GET["ft"]) ? array_values(array_filter((array)$_GET["ft"])) : [];
-    $senderFilter = isset($_GET["sf"]) ? array_values(array_filter((array)$_GET["sf"])) : [];
-    $wert = json_encode([
-        "filterTypen"    => $filterTypen,
-        "objektIdFilter" => trim((string)($_GET["oi"] ?? "")),
-        "senderFilter"   => $senderFilter,
-        "textFilter"     => trim((string)($_GET["tf"] ?? "")),
-    ], JSON_UNESCAPED_UNICODE);
-    IPS_RequestAction($instanzId, "FilterAnwenden", $wert);
-} elseif (in_array($aktion, ["LogDateiAuswaehlen","SetzeMaxZeilen","SetzeBetriebsmodus","SeiteVor","SeiteZurueck","Aktualisieren"])) {
-    $wert = trim((string)($_GET["v"] ?? ""));
-    if ($aktion === "SetzeMaxZeilen") $wert = (int)$wert;
-    IPS_RequestAction($instanzId, $aktion, $wert);
-} else {
-    LOGANALYZER_AktualisierenVisualisierung($instanzId);
-}
-
-header("Content-Type: text/html; charset=utf-8");
-echo GetValue(IPS_GetObjectIDByIdent("HTMLBOX", $instanzId));
-';
-
-		// Prüfen ob Script bereits existiert (Ident: HookScript_LogAnalyzer)
-		$scriptIdent = 'HookScript_LogAnalyzer_' . $this->InstanceID;
-		$scriptId = @IPS_GetObjectIDByIdent($scriptIdent, $this->InstanceID);
-
-		if ($scriptId === false || $scriptId === 0) {
-			// Neues Script anlegen
-			$scriptId = IPS_CreateScript(0); // PHP Script
-			IPS_SetParent($scriptId, $this->InstanceID);
-			IPS_SetIdent($scriptId, $scriptIdent);
-			IPS_SetName($scriptId, 'WebHook Handler');
-			IPS_SetHidden($scriptId, true);
+		try {
+			if ($aktion === 'FilterAnwenden') {
+				$filterTypen  = isset($get['ft']) ? array_values(array_filter((array) $get['ft'])) : [];
+				$senderFilter = isset($get['sf']) ? array_values(array_filter((array) $get['sf'])) : [];
+				$wert = json_encode([
+					'filterTypen'    => $filterTypen,
+					'objektIdFilter' => trim((string) ($get['oi'] ?? '')),
+					'senderFilter'   => $senderFilter,
+					'textFilter'     => trim((string) ($get['tf'] ?? '')),
+				], JSON_UNESCAPED_UNICODE);
+				$this->RequestAction('FilterAnwenden', $wert);
+			} elseif (in_array($aktion, ['LogDateiAuswaehlen','SetzeMaxZeilen','SetzeBetriebsmodus','SeiteVor','SeiteZurueck','Aktualisieren'], true)) {
+				$wert = trim((string) ($get['v'] ?? ''));
+				if ($aktion === 'SetzeMaxZeilen') {
+					$wert = (int) $wert;
+				}
+				$this->RequestAction($aktion, $wert);
+			} else {
+				$this->aktualisiereVisualisierung();
+			}
+		} catch (\Throwable $e) {
+			$this->SendDebug('Hook FEHLER', $e->getMessage(), 0);
+			$this->aktualisiereVisualisierung();
 		}
 
-		// Script-Inhalt aktualisieren
-		IPS_SetScriptContent($scriptId, $scriptCode);
-
-		// Als WebHook registrieren
-		IPS_RegisterHook($hookPath, $scriptId);
-
-		$this->SendDebug('Hook', 'Registriert: ' . $hookPath . ' ScriptID=' . $scriptId, 0);
+		header('Content-Type: text/html; charset=utf-8');
+		echo $this->GetValue('HTMLBOX');
+		exit;
 	}
 
 	public function AktualisierenVisualisierung(): void
