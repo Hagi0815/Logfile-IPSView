@@ -1,0 +1,12 @@
+{
+    "id": "{48934929-13B3-32EC-EE51-90A9BD13DB5C}",
+    "name": "LogAnalyzer",
+    "type": 3,
+    "vendor": "BugForgeNerd",
+    "aliases": [],
+    "parentRequirements": [],
+    "childRequirements": [],
+    "implemented": [],
+    "prefix": "LOGANALYZER",
+    "url": "https://github.com/BugForgeNerd/LogAnalyzer"
+}

@@ -1,0 +1,12 @@
+{
+    "id": "{2B47C3C9-00B1-F120-A2E4-E7CE2A251BF5}",
+    "name": "LogAnalyzer",
+    "author": "BugForgeNerd",
+    "url": "https://github.com/BugForgeNerd/LogAnalyzer",
+    "compatibility": {
+        "version": "8.1"
+    },
+    "version": "0.7.1",
+    "build": 0,
+    "date": 1774074974
+}

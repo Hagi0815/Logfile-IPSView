@@ -1,0 +1,12 @@
+{
+    "id": "{045316E8-ECD6-9B5C-91EF-8A110E832C06}",
+    "name": "AccessAnalyzer",
+    "type": 3,
+    "vendor": "BugForgeNerd",
+    "aliases": [],
+    "parentRequirements": [],
+    "childRequirements": [],
+    "implemented": [],
+    "prefix": "ACCESSANALYZER",
+    "url": "https://github.com/BugForgeNerd/LogAnalyzer"
+}
