@@ -856,20 +856,26 @@ const VERF_SENDER = {$verfSender};
 const AKT_TYPEN   = {$aktiveTypen};
 const AKT_SENDER  = {$aktiveSender};
 
-// Aktion an IPS senden über WebFront requestAction() API
+// Diagnose: Testet ob JS und requestAction funktionieren
 function la(ident, wert) {
-  // Ladebalken anzeigen
-  const loader = document.getElementById('laLoader');
-  const loaderTxt = document.getElementById('laLoaderTxt');
-  if (loader) loader.style.display = 'block';
-  if (loaderTxt) loaderTxt.textContent = 'Wird verarbeitet …';
-  document.querySelectorAll('button').forEach(b => b.disabled = true);
+  // Test 1: Ändert der Button seinen Text? -> JS läuft
+  const btn = event && event.target ? event.target : null;
+  if (btn) btn.textContent = 'JS läuft! ident=' + ident;
 
-  // WebFront requestAction aufrufen
-  requestAction(LA_ID, ident, wert);
+  // Test 2: Existiert requestAction?
+  if (typeof requestAction === 'undefined') {
+    alert('FEHLER: requestAction ist nicht definiert!\nJS läuft aber WebFront-API fehlt.');
+    return;
+  }
 
-  // Nach 1.5s Seite neu laden - WebFront hat dann die neue HTMLBOX Variable
-  setTimeout(function() { location.reload(); }, 1500);
+  // Test 3: requestAction aufrufen
+  try {
+    requestAction(LA_ID, ident, wert);
+    if (btn) btn.textContent = 'requestAction OK! Reload in 2s...';
+    setTimeout(function() { location.reload(); }, 2000);
+  } catch(e) {
+    alert('requestAction FEHLER: ' + e.message);
+  }
 }
 
 // Filter anwenden
