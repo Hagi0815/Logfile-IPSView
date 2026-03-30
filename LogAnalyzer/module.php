@@ -155,24 +155,81 @@ class LogAnalyzerIPSView extends IPSModuleStrict
      */
     public function GetConfigurationForm(): string
     {
+		// Verfügbare Logdateien für die Select-Box ermitteln
+		$logDateien = $this->ermittleVerfuegbareLogdateien();
+		$logOptionen = [];
+		foreach ($logDateien as $datei) {
+			$logOptionen[] = [
+				'caption' => $datei['anzeige'],
+				'value'   => $datei['pfad']
+			];
+		}
+		// Fallback falls keine Logdateien gefunden
+		if (empty($logOptionen)) {
+			$logOptionen[] = ['caption' => 'Keine Logdateien gefunden', 'value' => ''];
+		}
+
 		$elements = [
 			[
-				"type"    => "Label",
-				"caption" => 'Die Visualisierung erfolgt über die HTML-Box Variable "HTMLBOX" – diese in IPSView als HTML-Box einbinden.'
+				'type'    => 'Label',
+				'bold'    => true,
+				'caption' => 'Log Analyzer IPSView – Einstellungen'
 			],
 			[
-				"type"    => "Label",
-				"caption" => 'Der AutoRefresh-Timer aktualisiert die HTML-Box automatisch. Einstellung in Sekunden (0 = kein Auto-Refresh).'
-			]
-        ];
+				'type'    => 'Label',
+				'caption' => 'Die HTML-Box Variable "HTMLBOX" in IPSView als HTML-Box einbinden.'
+			],
+			[
+				'type'    => 'Select',
+				'name'    => 'LogDatei',
+				'caption' => 'Logdatei',
+				'options' => $logOptionen
+			],
+			[
+				'type'    => 'Select',
+				'name'    => 'MaxZeilen',
+				'caption' => 'Max. angezeigte Zeilen',
+				'options' => [
+					['caption' => '20',   'value' => 20],
+					['caption' => '50',   'value' => 50],
+					['caption' => '100',  'value' => 100],
+					['caption' => '200',  'value' => 200],
+					['caption' => '500',  'value' => 500],
+					['caption' => '1000', 'value' => 1000],
+					['caption' => '2000', 'value' => 2000],
+					['caption' => '3000', 'value' => 3000],
+				]
+			],
+			[
+				'type'    => 'Select',
+				'name'    => 'Betriebsmodus',
+				'caption' => 'Betriebsmodus',
+				'options' => [
+					['caption' => 'Standard (PHP, bis 6 MB)', 'value' => 'standard'],
+					['caption' => 'System (Shell/grep, für große Dateien)', 'value' => 'system'],
+				]
+			],
+			[
+				'type'    => 'NumberSpinner',
+				'name'    => 'AutoRefreshSekunden',
+				'caption' => 'Auto-Refresh (Sekunden, 0 = deaktiviert)',
+				'minimum' => 0,
+				'maximum' => 3600,
+				'suffix'  => 's'
+			],
+			[
+				'type'    => 'CheckBox',
+				'name'    => 'VerwendeSift',
+				'caption' => 'sift verwenden (nur Linux, schnelleres grep)'
+			],
+		];
 
         $actions = [
             [
                 'type'    => 'Button',
-                'caption' => 'Visualisierung aktualisieren',
+                'caption' => 'HTML-Box jetzt aktualisieren',
                 'onClick' => 'LOGANALYZER_AktualisierenVisualisierung($id);'
             ],
-
         ];
 
         return json_encode([
