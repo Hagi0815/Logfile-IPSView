@@ -95,8 +95,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		// HTML-Box Variable für IPSView
 		$this->RegisterVariableString('HTMLBOX', 'Log Anzeige', '~HTMLBox');
 
-		// WebHook für HTML-Box Interaktion registrieren
-		$this->RegisterHook('/hook/LogAnalyzerIPSView_' . $this->InstanceID);
 	}
 
     public function Destroy(): void
@@ -119,6 +117,9 @@ class LogAnalyzerIPSView extends IPSModuleStrict
     {
 		// nicht löschen
         parent::ApplyChanges();
+
+		// WebHook registrieren (muss in ApplyChanges stehen, nicht Create)
+		$this->RegisterHook('/hook/LogAnalyzerIPSView_' . $this->InstanceID);
 
 		// Tile Visu nutzen
         // Tile-Visualisierung deaktiviert (IPSView HTML-Box wird verwendet)
