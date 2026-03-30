@@ -498,9 +498,9 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			),
 			0
 		);
-		$erfolg = $this->UpdateVisualizationValue(json_encode($daten, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
+		// UpdateVisualizationValue nur versuchen (Tile-Visu deaktiviert → kein Fehler)
+		@$this->UpdateVisualizationValue(json_encode($daten, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
 		);
-		$this->SendDebug('UpdateVisualizationValue Status', $erfolg ? 'true' : 'false', 0);
 	}
 
     /**
@@ -935,13 +935,12 @@ HTML;
 				0
 			);
 
-			$erfolg = $this->UpdateVisualizationValue(
+			// UpdateVisualizationValue nur versuchen (Tile-Visu ist deaktiviert → gibt false zurück, kein Fehler)
+			@$this->UpdateVisualizationValue(
 				json_encode($daten, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
 			);
 
-			$this->SendDebug('UpdateVisualizationValue', $erfolg ? 'true' : 'false', 0);
-
-			// HTML-Box für IPSView befüllen
+			// HTML-Box für IPSView befüllen (Hauptausgabe)
 			$this->SetValue('HTMLBOX', $this->erstelleHtmlFuerIPSView($daten));
 		} catch (\Throwable $e) {
 			$status = $this->leseStatus();
