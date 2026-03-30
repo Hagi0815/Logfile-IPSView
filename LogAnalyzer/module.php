@@ -777,7 +777,7 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
 .ms-opt input[type=checkbox]{width:auto;min-height:0;margin:0;padding:0}
 </style></head>
 <body>
-<div class="la-wrap"><div class="la-card">
+<div id="laHtmlBox"><div class="la-wrap"><div class="la-card">
 
   <div class="la-toolbar">
     <div class="la-grid">
@@ -846,27 +846,68 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
       <tbody>{$tbodyHtml}</tbody>
     </table>
   </div>
-</div></div>
+</div></div></div>
 
 <script>
-const HOOK_URL = '{$hookUrl}';
+// IPS Instanz-ID für requestAction
+const LA_ID      = {$instanzId};
+const VERF_TYPEN  = {$verfTypen};
+const VERF_SENDER = {$verfSender};
+const AKT_TYPEN   = {$aktiveTypen};
+const AKT_SENDER  = {$aktiveSender};
 
-// Aktion ausführen: direkte Navigation zur Hook-URL
-// Der IPS-Hook führt die Aktion aus und gibt neues HTML zurück
-function la(aktion, wert) {
-  const url = HOOK_URL + '?a=' + encodeURIComponent(aktion) + '&v=' + encodeURIComponent(wert || '');
-  window.location.href = url;
+// Aktion an IPS senden über WebFront requestAction() API
+// Nach 1.5s die HTML-Box Variable neu laden um aktualisierten Inhalt zu zeigen
+function la(ident, wert) {
+  // Ladebalken
+  const loader = document.getElementById('laLoader');
+  const loaderTxt = document.getElementById('laLoaderTxt');
+  if (loader) loader.style.display = 'block';
+  if (loaderTxt) loaderTxt.textContent = 'Wird verarbeitet …';
+  document.querySelectorAll('button').forEach(b => b.disabled = true);
+
+  try {
+    // WebFront eigene requestAction Funktion
+    requestAction(LA_ID, ident, wert);
+  } catch(e) {
+    if (loader) loader.style.display = 'none';
+    document.querySelectorAll('button').forEach(b => b.disabled = false);
+    alert('requestAction Fehler: ' + e);
+    return;
+  }
+
+  // Nach 1.5s HTML-Box Variable neu laden
+  setTimeout(function() {
+    try {
+      // WebFront Variable neu laden - löst Re-Render der HTML-Box aus
+      asyncGetValue(getVariableIDByIdent(LA_ID, 'HTMLBOX'), function(val) {
+        if (val && val.Value) {
+          const box = document.getElementById('laHtmlBox');
+          if (box) {
+            box.innerHTML = val.Value;
+            laInit();
+          }
+        } else {
+          // Fallback: Seite neu laden
+          location.reload();
+        }
+      });
+    } catch(e2) {
+      // Fallback: Seite neu laden  
+      location.reload();
+    }
+  }, 1500);
 }
 
 // Filter anwenden
 function laFilter() {
-  const params = new URLSearchParams();
-  params.set('a', 'FilterAnwenden');
-  params.set('ft', msGetSelected('msTypOpts').join(','));
-  params.set('oi', document.getElementById('laObjektId').value.trim());
-  params.set('sf', msGetSelected('msSndOpts').join(','));
-  params.set('tf', document.getElementById('laText').value.trim());
-  window.location.href = HOOK_URL + '?' + params.toString();
+  const filter = JSON.stringify({
+    filterTypen:    msGetSelected('msTypOpts'),
+    objektIdFilter: document.getElementById('laObjektId').value.trim(),
+    senderFilter:   msGetSelected('msSndOpts'),
+    textFilter:     document.getElementById('laText').value.trim()
+  });
+  la('FilterAnwenden', filter);
 }
 
 // ObjektID per Doppelklick übernehmen
@@ -921,13 +962,12 @@ document.addEventListener('click', () => {
   document.querySelectorAll('.ms-wrap').forEach(w => w.classList.remove('open'));
 });
 
-const VERF_TYPEN  = {$verfTypen};
-const VERF_SENDER = {$verfSender};
-const AKT_TYPEN   = {$aktiveTypen};
-const AKT_SENDER  = {$aktiveSender};
+function laInit() {
+  msFill('msTypOpts', VERF_TYPEN, AKT_TYPEN);
+  msFill('msSndOpts', VERF_SENDER, AKT_SENDER);
+}
 
-msFill('msTypOpts', VERF_TYPEN, AKT_TYPEN);
-msFill('msSndOpts', VERF_SENDER, AKT_SENDER);
+laInit();
 </script>
 </body></html>
 HTML;
