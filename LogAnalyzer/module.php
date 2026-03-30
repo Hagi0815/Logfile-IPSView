@@ -857,46 +857,19 @@ const AKT_TYPEN   = {$aktiveTypen};
 const AKT_SENDER  = {$aktiveSender};
 
 // Aktion an IPS senden über WebFront requestAction() API
-// Nach 1.5s die HTML-Box Variable neu laden um aktualisierten Inhalt zu zeigen
 function la(ident, wert) {
-  // Ladebalken
+  // Ladebalken anzeigen
   const loader = document.getElementById('laLoader');
   const loaderTxt = document.getElementById('laLoaderTxt');
   if (loader) loader.style.display = 'block';
   if (loaderTxt) loaderTxt.textContent = 'Wird verarbeitet …';
   document.querySelectorAll('button').forEach(b => b.disabled = true);
 
-  try {
-    // WebFront eigene requestAction Funktion
-    requestAction(LA_ID, ident, wert);
-  } catch(e) {
-    if (loader) loader.style.display = 'none';
-    document.querySelectorAll('button').forEach(b => b.disabled = false);
-    alert('requestAction Fehler: ' + e);
-    return;
-  }
+  // WebFront requestAction aufrufen
+  requestAction(LA_ID, ident, wert);
 
-  // Nach 1.5s HTML-Box Variable neu laden
-  setTimeout(function() {
-    try {
-      // WebFront Variable neu laden - löst Re-Render der HTML-Box aus
-      asyncGetValue(getVariableIDByIdent(LA_ID, 'HTMLBOX'), function(val) {
-        if (val && val.Value) {
-          const box = document.getElementById('laHtmlBox');
-          if (box) {
-            box.innerHTML = val.Value;
-            laInit();
-          }
-        } else {
-          // Fallback: Seite neu laden
-          location.reload();
-        }
-      });
-    } catch(e2) {
-      // Fallback: Seite neu laden  
-      location.reload();
-    }
-  }, 1500);
+  // Nach 1.5s Seite neu laden - WebFront hat dann die neue HTMLBOX Variable
+  setTimeout(function() { location.reload(); }, 1500);
 }
 
 // Filter anwenden
