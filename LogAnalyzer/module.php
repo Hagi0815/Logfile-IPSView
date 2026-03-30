@@ -12,7 +12,8 @@
  * - Ladezeit Filter 0ms, wenn nicht notwendig zum Laden, bei Modi System
 */
 
-declare(strict_types=1);
+// strict_types deaktiviert wegen ProcessHookData Hook-Kompatibilität
+// declare(strict_types=1);
 require_once __DIR__ . '/libs/LogAnalyzerStandardTrait.php';
 require_once __DIR__ . '/libs/LogAnalyzerSystemTrait.php';
 
@@ -101,6 +102,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
     {
 		// nicht löschen
         parent::Destroy();
+		$this->RemoveHook('/hook/LogAnalyzerIPSView_' . $this->InstanceID);
     }
 
     /**
@@ -496,7 +498,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 
 
 
-	public function ProcessHookData(): void
+	public function ProcessHookData()
 	{
 		$aktion = isset($_GET['a']) ? trim($_GET['a']) : '';
 		$status = $this->leseStatus();
