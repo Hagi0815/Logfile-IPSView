@@ -994,8 +994,29 @@ HTML;
 	private function erstelleVisualisierungsDaten(): array
 	{
 		$status = $this->leseStatus();
+
+		// IPSView: Filtermetadaten synchron laden wenn Cache leer
 		$filterMetadaten = $this->leseFilterMetadatenFuerAnzeige();
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		if (empty($filterMetadaten['verfuegbareFilterTypen']) && empty($filterMetadaten['verfuegbareSender'])) {
+			$logDateiCheck = $this->leseAktuelleLogDatei();
+			if (is_file($logDateiCheck)) {
+				$ermittelt = $this->ermittleFilterMetadaten();
+				$filterMetadaten['verfuegbareFilterTypen'] = $ermittelt['verfuegbareFilterTypen'] ?? [];
+				$filterMetadaten['verfuegbareSender']      = $ermittelt['verfuegbareSender'] ?? [];
+				// Cache schreiben
+				$metaRoh = $this->leseFilterMetadatenRoh();
+				$metaRoh['verfuegbareFilterTypen'] = $filterMetadaten['verfuegbareFilterTypen'];
+				$metaRoh['verfuegbareSender']      = $filterMetadaten['verfuegbareSender'];
+				$metaRoh['gesamtZeilenCache']      = (int)($ermittelt['gesamtZeilen'] ?? -1);
+				$metaRoh['dateiGroesseCache']      = (int)filesize($logDateiCheck);
+				$metaRoh['dateiMTimeCache']        = (int)filemtime($logDateiCheck);
+				$metaRoh['laedt']                  = false;
+				$metaRoh['signatur']               = $this->ermittleFilterMetadatenSignatur($status);
+				$this->schreibeFilterMetadaten($metaRoh);
+			}
+		}
+
+		$logDatei = $this->leseAktuelleLogDatei();
 		$maxZeilen = $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50));
 		$betriebsmodus = $this->ermittleAktivenModus();
 
@@ -1078,7 +1099,7 @@ HTML;
 	{
 		$status = $this->leseStatus();
 		$filterMetadaten = $this->leseFilterMetadatenFuerAnzeige();
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktuelleLogDatei();
 		$maxZeilen = $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50));
 		$betriebsmodus = $this->ermittleAktivenModus();
 
@@ -1187,7 +1208,7 @@ HTML;
 			$this->SendDebug('LadeFilterOptionen',
 				sprintf(
 					'modus-blockiert datei=%s meldung=%s',
-					basename($this->ReadPropertyString('LogDatei')),
+					basename($this->leseAktuelleLogDatei()),
 					(string) ($modusPruefung['fehlermeldung'] ?? '')
 				),
 				0
@@ -1200,7 +1221,7 @@ HTML;
 			return;
 		}
 
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktuelleLogDatei();
 		$status = $this->leseStatus();
 		$meta = $this->leseFilterMetadatenRoh();
 
@@ -1323,7 +1344,7 @@ HTML;
 			$this->SendDebug('ZaehleTreffer',
 				sprintf(
 					'modus-blockiert datei=%s meldung=%s',
-					basename($this->ReadPropertyString('LogDatei')),
+					basename($this->leseAktuelleLogDatei()),
 					(string) ($modusPruefung['fehlermeldung'] ?? '')
 				),
 				0
@@ -1337,7 +1358,7 @@ HTML;
 		}
 
 		$status = $this->leseStatus();
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktuelleLogDatei();
 
 		if (!is_file($logDatei)) {
 			$aktuellerStatus = $this->leseStatus();
@@ -1558,7 +1579,7 @@ HTML;
 			array_pop($zeilen);
 		}
 
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktuelleLogDatei();
 		$dateiGroesse = is_file($logDatei) ? (int) filesize($logDatei) : 0;
 		$dateiMTime = is_file($logDatei) ? (int) filemtime($logDatei) : 0;
 		$listenSignatur = $this->ermittleListenCacheSignatur($status);
@@ -1740,7 +1761,7 @@ HTML;
 	private function ermittleListenCacheSignatur(array $status): string
 	{
 		return md5(json_encode([
-			'logDatei'        => $this->ReadPropertyString('LogDatei'),
+			'logDatei'        => $this->leseAktuelleLogDatei(),
 			'seite'           => max(0, (int) ($status['seite'] ?? 0)),
 			'maxZeilen'       => $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50)),
 			'filterTypen'     => $this->normalisiereFilterTypen($status['filterTypen'] ?? []),
@@ -1966,7 +1987,7 @@ HTML;
 	private function leseFilterMetadatenFuerAnzeige(): array
 	{
 		$roh = $this->leseFilterMetadatenRoh();
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktuelleLogDatei();
 		$status = $this->leseStatus();
 
 		if (!is_file($logDatei)) {
@@ -2086,7 +2107,7 @@ HTML;
 	private function pruefeModusVerwendbarkeit(): array
 	{
 		$modus = $this->ermittleAktivenModus();
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktuelleLogDatei();
 
 		if (!is_file($logDatei)) {
 			return [
@@ -2157,13 +2178,13 @@ HTML;
 		if ($modus !== 'standard') {
 			return md5(json_encode([
 				'modus'   => $modus,
-				'logDatei'=> $this->ReadPropertyString('LogDatei')
+				'logDatei'=> $this->leseAktuelleLogDatei()
 			], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
 		}
 
 		return md5(json_encode([
 			'modus'          => $modus,
-			'logDatei'       => $this->ReadPropertyString('LogDatei'),
+			'logDatei'       => $this->leseAktuelleLogDatei(),
 			'objektIdFilter' => $this->normalisiereObjektIdFilterString((string) ($status['objektIdFilter'] ?? '')),
 			'textFilter'     => trim((string) ($status['textFilter'] ?? '')),
 			'filterTypen'    => $this->normalisiereFilterTypen($status['filterTypen'] ?? []),
