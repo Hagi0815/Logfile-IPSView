@@ -723,7 +723,7 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
   <div class="la-toolbar">
     <div class="la-grid">
       <label class="la-lbl">Logdatei
-        <select id="laLogDatei" onchange="la('LogDateiAuswaehlen',this.value)">{$logOptionen}</select>
+        <select id="laLogDatei" onchange="la('LogDateiAuswaehlen',this.value,1200)">{$logOptionen}</select>
       </label>
       <label class="la-lbl">Zeilen pro Seite
         <select id="laMaxZeilen" onchange="la('SetzeMaxZeilen',parseInt(this.value))">{$zeilenOptionen}</select>
@@ -749,7 +749,7 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
     </div>
     <div class="la-btnrow">
       <label class="la-inline"><span>Mode:</span>
-        <select id="laModus" onchange="la('SetzeBetriebsmodus',this.value)">{$modusOptionen}</select>
+        <select id="laModus" onchange="la('SetzeBetriebsmodus',this.value,1000)">{$modusOptionen}</select>
       </label>
       <button onclick="laFilter()">Filter anwenden</button>
       <button class="sec" onclick="la('Aktualisieren','')">Aktualisieren</button>
@@ -800,22 +800,29 @@ const VERF_SENDER = {$verfSender};
 const AKT_TYPEN   = {$aktiveTypen};
 const AKT_SENDER  = {$aktiveSender};
 
-// IPS JSON-RPC Aufruf – wartet auf Antwort, dann Seite neu laden
-function la(ident, value) {
-  // Buttons während der Verarbeitung deaktivieren
+// Ladebalken und Buttons sperren
+function laSetLoading(text) {
   document.querySelectorAll('button').forEach(b => b.disabled = true);
-  // Ladebalken anzeigen
   const loader = document.getElementById('laLoader');
   const loaderTxt = document.getElementById('laLoaderTxt');
-  if (loader) { loader.style.display = 'block'; }
-  if (loaderTxt) { loaderTxt.textContent = 'Wird verarbeitet …'; }
+  if (loader) loader.style.display = 'block';
+  if (loaderTxt) loaderTxt.textContent = text || 'Wird verarbeitet …';
+}
+
+// IPS JSON-RPC Aufruf – sendet Aktion und lädt danach die Seite neu
+function la(ident, value, reloadDelay) {
+  laSetLoading('Wird verarbeitet …');
+  const delay = reloadDelay || 600;
+
+  const headers = {'Content-Type': 'application/json'};
+  if (HAS_AUTH) {
+    headers['Authorization'] = 'Basic ' + btoa(IPS_USER + ':' + IPS_PASS);
+  }
 
   fetch(RPC_URL, {
     method: 'POST',
-    credentials: 'include',   // Session-Cookie mitschicken (IPSView-Login)
-    headers: HAS_AUTH
-      ? {'Content-Type': 'application/json', 'Authorization': 'Basic ' + btoa(IPS_USER + ':' + IPS_PASS)}
-      : {'Content-Type': 'application/json'},
+    credentials: 'include',
+    headers: headers,
     body: JSON.stringify({
       jsonrpc: '2.0', method: 'IPS_RequestAction', id: 1,
       params: {InstanceID: IPS_ID, Ident: ident, Value: value}
@@ -823,19 +830,15 @@ function la(ident, value) {
   })
   .then(r => r.json())
   .then(resp => {
-    if (resp.error) {
-      console.error('IPS RPC Fehler', resp.error);
-      // Bei Auth-Fehler Hinweis anzeigen
-      if (resp.error.code === -32602 || resp.error.code === -32700) {
-        alert('IPS Fehler: ' + resp.error.message);
-      }
+    if (resp && resp.error) {
+      console.warn('IPS RPC Antwort-Fehler', resp.error);
     }
-    // Nach erfolgreicher Aktion Seite neu laden um neue HTML-Box-Daten zu zeigen
-    setTimeout(() => location.reload(), 300);
+    // Seite neu laden damit neue HTMLBOX-Daten sichtbar werden
+    setTimeout(() => location.reload(), delay);
   })
   .catch(e => {
-    console.error('IPS RPC Netzwerkfehler', e);
-    setTimeout(() => location.reload(), 500);
+    console.error('IPS RPC Fehler', e);
+    setTimeout(() => location.reload(), delay);
   });
 }
 
@@ -988,7 +991,14 @@ HTML;
 	private function erstelleVisualisierungsDaten(): array
 	{
 		$status = $this->leseStatus();
+
+		// IPSView: Filtermetadaten synchron laden wenn Cache leer (kein JS-Trigger verfügbar)
 		$filterMetadaten = $this->leseFilterMetadatenFuerAnzeige();
+		if (!(bool) ($filterMetadaten['geladen'] ?? false) && !(bool) ($filterMetadaten['laedt'] ?? false)) {
+			$this->ladeFilterMetadatenAsynchron();
+			$filterMetadaten = $this->leseFilterMetadatenFuerAnzeige();
+		}
+
 		$logDatei = $this->ReadPropertyString('LogDatei');
 		$maxZeilen = $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50));
 		$betriebsmodus = $this->ermittleAktivenModus();
