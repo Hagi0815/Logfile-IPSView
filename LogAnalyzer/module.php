@@ -498,22 +498,48 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 	public function ProcessHookData(): void
 	{
 		$aktion = isset($_GET['a']) ? trim((string) $_GET['a']) : '';
-		$wert   = isset($_GET['v']) ? trim((string) $_GET['v']) : '';
 
-		$this->SendDebug('Hook', 'aktion=' . $aktion . ' wert=' . $wert, 0);
+		$this->SendDebug('Hook', 'aktion=' . $aktion . ' GET=' . json_encode($_GET), 0);
 
-		if ($aktion !== '') {
-			try {
-				$this->RequestAction($aktion, $wert);
-			} catch (\Throwable $e) {
-				$this->SendDebug('Hook FEHLER', $e->getMessage(), 0);
+		try {
+			switch ($aktion) {
+				case 'FilterAnwenden':
+					$filterTypen  = isset($_GET['ft']) && $_GET['ft'] !== ''
+						? array_filter(explode(',', (string) $_GET['ft']))
+						: [];
+					$senderFilter = isset($_GET['sf']) && $_GET['sf'] !== ''
+						? array_filter(explode(',', (string) $_GET['sf']))
+						: [];
+					$wert = json_encode([
+						'filterTypen'    => array_values($filterTypen),
+						'objektIdFilter' => trim((string) ($_GET['oi'] ?? '')),
+						'senderFilter'   => array_values($senderFilter),
+						'textFilter'     => trim((string) ($_GET['tf'] ?? '')),
+					], JSON_UNESCAPED_UNICODE);
+					$this->RequestAction('FilterAnwenden', $wert);
+					break;
+				case 'LogDateiAuswaehlen':
+				case 'SetzeMaxZeilen':
+				case 'SetzeBetriebsmodus':
+				case 'SeiteVor':
+				case 'SeiteZurueck':
+				case 'Aktualisieren':
+					$wert = trim((string) ($_GET['v'] ?? ''));
+					if ($aktion === 'SetzeMaxZeilen') {
+						$wert = (int) $wert;
+					}
+					$this->RequestAction($aktion, $wert);
+					break;
+				default:
+					$this->aktualisiereVisualisierung();
+					break;
 			}
-		} else {
-			// Kein Ident → nur aktualisieren
+		} catch (\Throwable $e) {
+			$this->SendDebug('Hook FEHLER', $e->getMessage(), 0);
 			$this->aktualisiereVisualisierung();
 		}
 
-		// Nach Aktion: aktuellen HTMLBOX-Inhalt direkt ausgeben (kein Redirect nötig)
+		// Aktuellen HTMLBOX-Inhalt direkt ausgeben
 		header('Content-Type: text/html; charset=utf-8');
 		echo $this->GetValue('HTMLBOX');
 		exit;
@@ -825,41 +851,22 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
 <script>
 const HOOK_URL = '{$hookUrl}';
 
-// Aktion per iframe-Navigation ausführen (kein CORS, kein JS-Fetch nötig)
+// Aktion ausführen: direkte Navigation zur Hook-URL
+// Der IPS-Hook führt die Aktion aus und gibt neues HTML zurück
 function la(aktion, wert) {
-  // Ladebalken anzeigen
-  const loader = document.getElementById('laLoader');
-  const loaderTxt = document.getElementById('laLoaderTxt');
-  if (loader) loader.style.display = 'block';
-  if (loaderTxt) loaderTxt.textContent = 'Wird verarbeitet …';
-  document.querySelectorAll('button,select').forEach(b => b.disabled = true);
-
-  // Hook-URL aufrufen - der IPS-Server führt die Aktion aus und gibt neues HTML zurück
   const url = HOOK_URL + '?a=' + encodeURIComponent(aktion) + '&v=' + encodeURIComponent(wert || '');
-
-  fetch(url, {credentials: 'include'})
-    .then(r => r.text())
-    .then(html => {
-      document.open('text/html', 'replace');
-      document.write(html);
-      document.close();
-    })
-    .catch(e => {
-      if (loader) loader.style.display = 'none';
-      document.querySelectorAll('button,select').forEach(b => b.disabled = false);
-      alert('Fehler: ' + e + '\nURL: ' + url);
-    });
+  window.location.href = url;
 }
 
 // Filter anwenden
 function laFilter() {
-  const filter = JSON.stringify({
-    filterTypen:    msGetSelected('msTypOpts'),
-    objektIdFilter: document.getElementById('laObjektId').value.trim(),
-    senderFilter:   msGetSelected('msSndOpts'),
-    textFilter:     document.getElementById('laText').value.trim()
-  });
-  la('FilterAnwenden', filter);
+  const params = new URLSearchParams();
+  params.set('a', 'FilterAnwenden');
+  params.set('ft', msGetSelected('msTypOpts').join(','));
+  params.set('oi', document.getElementById('laObjektId').value.trim());
+  params.set('sf', msGetSelected('msSndOpts').join(','));
+  params.set('tf', document.getElementById('laText').value.trim());
+  window.location.href = HOOK_URL + '?' + params.toString();
 }
 
 // ObjektID per Doppelklick übernehmen
