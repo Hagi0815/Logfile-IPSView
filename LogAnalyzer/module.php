@@ -16,7 +16,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/libs/LogAnalyzerStandardTrait.php';
 require_once __DIR__ . '/libs/LogAnalyzerSystemTrait.php';
 
-class LogAnalyzerIPSView extends IPSModuleStrict
+class LogAnalyzerIPSView extends IPSModule
 {
 	use LogAnalyzerStandardTrait;
 	use LogAnalyzerSystemTrait;
@@ -496,28 +496,25 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 
 
 	/**
-	 * ProcessHookWithUserData – wird von IPS aufgerufen wenn der Hook angesprochen wird
+	 * ProcessHookData – IPS WebHook Handler
 	 */
-	public function ProcessHookWithUserData(array $data): void
+	public function ProcessHookData()
 	{
-		$get    = $data['QUERY'] ?? [];
-		$aktion = isset($get['a']) ? trim((string) $get['a']) : '';
-
-		$this->SendDebug('Hook', 'aktion=' . $aktion . ' data=' . json_encode($get), 0);
+		$aktion = isset($_GET['a']) ? trim((string) $_GET['a']) : '';
 
 		try {
 			if ($aktion === 'FilterAnwenden') {
-				$filterTypen  = isset($get['ft']) ? array_values(array_filter((array) $get['ft'])) : [];
-				$senderFilter = isset($get['sf']) ? array_values(array_filter((array) $get['sf'])) : [];
+				$filterTypen  = isset($_GET['ft']) ? array_values(array_filter((array) $_GET['ft'])) : [];
+				$senderFilter = isset($_GET['sf']) ? array_values(array_filter((array) $_GET['sf'])) : [];
 				$wert = json_encode([
 					'filterTypen'    => $filterTypen,
-					'objektIdFilter' => trim((string) ($get['oi'] ?? '')),
+					'objektIdFilter' => trim((string) ($_GET['oi'] ?? '')),
 					'senderFilter'   => $senderFilter,
-					'textFilter'     => trim((string) ($get['tf'] ?? '')),
+					'textFilter'     => trim((string) ($_GET['tf'] ?? '')),
 				], JSON_UNESCAPED_UNICODE);
 				$this->RequestAction('FilterAnwenden', $wert);
 			} elseif (in_array($aktion, ['LogDateiAuswaehlen','SetzeMaxZeilen','SetzeBetriebsmodus','SeiteVor','SeiteZurueck','Aktualisieren'], true)) {
-				$wert = trim((string) ($get['v'] ?? ''));
+				$wert = trim((string) ($_GET['v'] ?? ''));
 				if ($aktion === 'SetzeMaxZeilen') {
 					$wert = (int) $wert;
 				}
@@ -526,13 +523,10 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				$this->aktualisiereVisualisierung();
 			}
 		} catch (\Throwable $e) {
-			$this->SendDebug('Hook FEHLER', $e->getMessage(), 0);
-			$this->aktualisiereVisualisierung();
+			// Fehler ignorieren, einfach aktuellen Stand ausgeben
 		}
 
-		header('Content-Type: text/html; charset=utf-8');
 		echo $this->GetValue('HTMLBOX');
-		exit;
 	}
 
 	public function AktualisierenVisualisierung(): void
