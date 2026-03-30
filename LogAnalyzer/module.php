@@ -13,12 +13,11 @@
 */
 
 declare(strict_types=1);
-require_once __DIR__ . '/libs/LogAnalyzerBase.php';
 require_once __DIR__ . '/libs/LogAnalyzerStandardTrait.php';
 require_once __DIR__ . '/libs/LogAnalyzerSystemTrait.php';
 require_once __DIR__ . '/libs/LogAnalyzerUltraTrait.php';
 
-class LogAnalyzerIPSView extends LogAnalyzerBase
+class LogAnalyzerIPSView extends IPSModuleStrict
 {
 	use LogAnalyzerStandardTrait;
 	use LogAnalyzerSystemTrait;
@@ -560,6 +559,18 @@ class LogAnalyzerIPSView extends LogAnalyzerBase
      * Parameter: keine
      * Rückgabewert: void
      */
+	public function ProcessHookData()
+	{
+		// Hook-Handler in separater Datei ohne strict_types
+		$handler = __DIR__ . '/libs/hook_handler.php';
+		if (is_file($handler)) {
+			$module = $this;
+			include $handler;
+		} else {
+			echo $this->GetValue('HTMLBOX');
+		}
+	}
+
 	public function AktualisierenVisualisierung(): void
 	{
 		$this->aktualisiereVisualisierung();
@@ -854,7 +865,7 @@ HTML;
 	}
 
 
-	private function aktualisiereVisualisierung(): void
+	public function aktualisiereVisualisierung(): void
 	{
 		try {
 			$start = microtime(true);
@@ -1749,7 +1760,7 @@ HTML;
      * Parameter: keine
      * Rückgabewert: void
      */
-	private function leereSeitenCache(): void
+	public function leereSeitenCache(): void
 	{
 		$this->schreibeSeitenCache([
 			'listenSignatur'    => '',
@@ -1772,7 +1783,7 @@ HTML;
      * Parameter: keine
      * Rückgabewert: array
      */
-	private function leseStatus(): array
+	public function leseStatus(): array
 	{
 		$json = $this->ReadAttributeString(self::ATTR_STATUS);
 		$daten = $this->dekodiereJsonArray($json);
@@ -1807,7 +1818,7 @@ HTML;
      * Parameter: array $status
      * Rückgabewert: void
      */
-	private function schreibeStatus(array $status): void
+	public function schreibeStatus(array $status): void
 	{
 		$this->WriteAttributeString(
 			self::ATTR_STATUS,
@@ -1945,7 +1956,7 @@ HTML;
      * Parameter: array $meta
      * Rückgabewert: void
      */
-	private function schreibeFilterMetadaten(array $meta): void
+	public function schreibeFilterMetadaten(array $meta): void
 	{
 		$this->WriteAttributeString(
 			self::ATTR_FILTERMETA,
@@ -2282,7 +2293,7 @@ HTML;
      * Parameter: int $wert
      * Rückgabewert: int
      */
-	private function normalisiereMaxZeilen(int $wert): int
+	public function normalisiereMaxZeilen(int $wert): int
 	{
 		$erlaubt = [20, 50, 100, 200, 500, 1000, 2000, 3000];
 		return in_array($wert, $erlaubt, true) ? $wert : 50;
