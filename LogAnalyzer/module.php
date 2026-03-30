@@ -15,13 +15,11 @@
 declare(strict_types=1);
 require_once __DIR__ . '/libs/LogAnalyzerStandardTrait.php';
 require_once __DIR__ . '/libs/LogAnalyzerSystemTrait.php';
-require_once __DIR__ . '/libs/LogAnalyzerUltraTrait.php';
 
 class LogAnalyzerIPSView extends IPSModuleStrict
 {
 	use LogAnalyzerStandardTrait;
 	use LogAnalyzerSystemTrait;
-	use LogAnalyzerUltraTrait;
 
 	private const ATTR_STATUS = 'VisualisierungsStatus';
 	private const ATTR_FILTERMETA = 'FilterMetadaten';
@@ -202,31 +200,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
         ], JSON_THROW_ON_ERROR);
     }
 
-    /**
-     * GetVisualizationTile
-     *
-     * Liefert die HTML-Visualisierung für die Tile-Ansicht.
-     * - Lädt die HTML-Datei des Moduls
-     * - Übergibt die initialen Visualisierungsdaten
-     *
-     * Parameter: keine
-     * Rückgabewert: string
-     */
-    public function GetVisualizationTile(): string
-    {
-        $datei = __DIR__ . '/module.html';	// ggf auch automatisch
-        if (!is_file($datei)) {
-            return '<div style="padding:1rem;font-family:sans-serif;">module.html nicht gefunden.</div>';
-        }
-
-        $html = file_get_contents($datei);
-        if ($html === false) {
-            return '<div style="padding:1rem;font-family:sans-serif;">module.html konnte nicht geladen werden.</div>';
-        }
-
-        $initialDaten = $this->erstelleVisualisierungsDaten();
-        return str_replace('%%INITIAL_DATA%%',json_encode($initialDaten, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),$html);
-    }
 
     /**
      * RequestAction
@@ -361,12 +334,18 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 						throw new Exception('Ungültige Logdatei ausgewählt: ' . $datei);
 					}
 
+					// IPSView: IPS_ApplyChanges würde den Thread abbrechen bevor SetValue('HTMLBOX') erreicht wird.
+					// Property direkt schreiben und selbst aktualisieren statt ApplyChanges zu nutzen.
 					IPS_SetProperty($this->InstanceID, 'LogDatei', $datei);
-					IPS_ApplyChanges($this->InstanceID);
+					// Timer-Intervall neu setzen (wie ApplyChanges es täte)
+					$intervall = max(0, $this->ReadPropertyInteger('AutoRefreshSekunden')) * 1000;
+					$this->SetTimerInterval('VisualisierungAktualisieren', $intervall);
 
 					$status = [
 						'seite'                    => 0,
-						'maxZeilen'                => $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50)),
+						'maxZeilen'                => $this->normalisiereMaxZeilen(
+							max((int) ($status['maxZeilen'] ?? 0), $this->ReadPropertyInteger('MaxZeilen'))
+						),
 						'theme'                    => $this->normalisiereTheme((string) ($status['theme'] ?? 'dark')),
 						'kompakt'                  => $this->normalisiereKompakt($status['kompakt'] ?? false),
 						'filterTypen'              => [],
@@ -444,8 +423,8 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 						$modus = 'standard';
 					}
 
+					// IPSView: Property direkt setzen, kein IPS_ApplyChanges (würde Thread abbrechen)
 					IPS_SetProperty($this->InstanceID, 'Betriebsmodus', $modus);
-					IPS_ApplyChanges($this->InstanceID);
 
 					$status['trefferGesamt'] = -1;
 					$status['zaehlungLaeuft'] = false;
@@ -723,7 +702,7 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
   <div class="la-toolbar">
     <div class="la-grid">
       <label class="la-lbl">Logdatei
-        <select id="laLogDatei" onchange="la('LogDateiAuswaehlen',this.value,1200)">{$logOptionen}</select>
+        <select id="laLogDatei" onchange="la('LogDateiAuswaehlen',this.value)">{$logOptionen}</select>
       </label>
       <label class="la-lbl">Zeilen pro Seite
         <select id="laMaxZeilen" onchange="la('SetzeMaxZeilen',parseInt(this.value))">{$zeilenOptionen}</select>
@@ -749,7 +728,7 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
     </div>
     <div class="la-btnrow">
       <label class="la-inline"><span>Mode:</span>
-        <select id="laModus" onchange="la('SetzeBetriebsmodus',this.value,1000)">{$modusOptionen}</select>
+        <select id="laModus" onchange="la('SetzeBetriebsmodus',this.value)">{$modusOptionen}</select>
       </label>
       <button onclick="laFilter()">Filter anwenden</button>
       <button class="sec" onclick="la('Aktualisieren','')">Aktualisieren</button>
@@ -992,11 +971,26 @@ HTML;
 	{
 		$status = $this->leseStatus();
 
-		// IPSView: Filtermetadaten synchron laden wenn Cache leer (kein JS-Trigger verfügbar)
+		// IPSView: Filtermetadaten synchron laden wenn Cache leer oder ungültig
 		$filterMetadaten = $this->leseFilterMetadatenFuerAnzeige();
-		if (!(bool) ($filterMetadaten['geladen'] ?? false) && !(bool) ($filterMetadaten['laedt'] ?? false)) {
-			$this->ladeFilterMetadatenAsynchron();
-			$filterMetadaten = $this->leseFilterMetadatenFuerAnzeige();
+		if (!(bool) ($filterMetadaten['geladen'] ?? false)) {
+			$logDateiCheck = $this->ReadPropertyString('LogDatei');
+			if (is_file($logDateiCheck)) {
+				$dateiGroesseCheck = (int) filesize($logDateiCheck);
+				$dateiMTimeCheck   = (int) filemtime($logDateiCheck);
+				$ermittelt = $this->ermittleFilterMetadaten();
+				$metaRoh = $this->leseFilterMetadatenRoh();
+				$metaRoh['verfuegbareFilterTypen'] = $ermittelt['verfuegbareFilterTypen'];
+				$metaRoh['verfuegbareSender']      = $ermittelt['verfuegbareSender'];
+				$metaRoh['gesamtZeilenCache']      = (int) ($ermittelt['gesamtZeilen'] ?? -1);
+				$metaRoh['dateiGroesseCache']      = $dateiGroesseCheck;
+				$metaRoh['dateiMTimeCache']        = $dateiMTimeCheck;
+				$metaRoh['ladezeitMs']             = 0;
+				$metaRoh['laedt']                  = false;
+				$metaRoh['signatur']               = $this->ermittleFilterMetadatenSignatur($this->leseStatus());
+				$this->schreibeFilterMetadaten($metaRoh);
+				$filterMetadaten = $this->leseFilterMetadatenFuerAnzeige();
+			}
 		}
 
 		$logDatei = $this->ReadPropertyString('LogDatei');
