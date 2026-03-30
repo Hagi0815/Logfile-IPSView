@@ -155,74 +155,21 @@ class LogAnalyzerIPSView extends IPSModuleStrict
      */
     public function GetConfigurationForm(): string
     {
-		// Verfügbare Logdateien für die Select-Box ermitteln
-		$logDateien = $this->ermittleVerfuegbareLogdateien();
-		$logOptionen = [];
-		foreach ($logDateien as $datei) {
-			$logOptionen[] = [
-				'caption' => $datei['anzeige'],
-				'value'   => $datei['pfad']
-			];
-		}
-		// Fallback falls keine Logdateien gefunden
-		if (empty($logOptionen)) {
-			$logOptionen[] = ['caption' => 'Keine Logdateien gefunden', 'value' => ''];
-		}
-
-		$elements = [
-			[
-				'type'    => 'Label',
-				'bold'    => true,
-				'caption' => 'Log Analyzer IPSView – Einstellungen'
-			],
-			[
-				'type'    => 'Label',
-				'caption' => 'Die HTML-Box Variable "HTMLBOX" in IPSView als HTML-Box einbinden.'
-			],
-			[
-				'type'    => 'Select',
-				'name'    => 'LogDatei',
-				'caption' => 'Logdatei',
-				'options' => $logOptionen
-			],
-			[
-				'type'    => 'Select',
-				'name'    => 'MaxZeilen',
-				'caption' => 'Max. angezeigte Zeilen',
-				'options' => [
-					['caption' => '20',   'value' => 20],
-					['caption' => '50',   'value' => 50],
-					['caption' => '100',  'value' => 100],
-					['caption' => '200',  'value' => 200],
-					['caption' => '500',  'value' => 500],
-					['caption' => '1000', 'value' => 1000],
-					['caption' => '2000', 'value' => 2000],
-					['caption' => '3000', 'value' => 3000],
-				]
-			],
-			[
-				'type'    => 'Select',
-				'name'    => 'Betriebsmodus',
-				'caption' => 'Betriebsmodus',
-				'options' => [
-					['caption' => 'Standard (PHP, bis 6 MB)', 'value' => 'standard'],
-					['caption' => 'System (Shell/grep, für große Dateien)', 'value' => 'system'],
-				]
-			],
-			[
-				'type'    => 'NumberSpinner',
-				'name'    => 'AutoRefreshSekunden',
-				'caption' => 'Auto-Refresh (Sekunden, 0 = deaktiviert)',
-				'minimum' => 0,
-				'maximum' => 3600,
-				'suffix'  => 's'
-			],
-			[
-				'type'    => 'CheckBox',
-				'name'    => 'VerwendeSift',
-				'caption' => 'sift verwenden (nur Linux, schnelleres grep)'
-			],
-		];
+        $elements = [
+            [
+                'type'    => 'Label',
+                'bold'    => true,
+                'caption' => 'Log Analyzer IPSView'
+            ],
+            [
+                'type'    => 'Label',
+                'caption' => 'Alle Einstellungen (Logdatei, Filter, Zeilen, Modus) werden direkt in der HTML-Box gesteuert.'
+            ],
+            [
+                'type'    => 'Label',
+                'caption' => 'Die Variable "HTMLBOX" in IPSView als HTML-Box einbinden.'
+            ],
+        ];
 
         $actions = [
             [
@@ -571,81 +518,345 @@ class LogAnalyzerIPSView extends IPSModuleStrict
      * Rückgabewert: void
      */
 
+
 	/**
 	 * erstelleHtmlFuerIPSView
 	 *
-	 * Erzeugt fertiges HTML aus den Visualisierungsdaten für die IPSView HTML-Box.
-	 * - Rendert Kopfzeile mit Dateiname, Größe, Trefferbereich und Zeitstempel
-	 * - Gibt eine farbige Tabelle der Logzeilen aus (Typ-Farben je Level)
+	 * Erzeugt eine vollständig interaktive HTML-Oberfläche für die IPSView HTML-Box.
+	 * - Enthält alle Filter- und Steuerelemente (wie die original Tile-Ansicht)
+	 * - Kommuniziert via IPS JSON-RPC mit dem Modul (RequestAction)
 	 *
 	 * Parameter: array $daten
 	 * Rückgabewert: string
 	 */
 	private function erstelleHtmlFuerIPSView(array $daten): string
 	{
-		$datei   = htmlspecialchars(basename((string) ($daten['logDatei'] ?? '')));
-		$groesse = htmlspecialchars((string) ($daten['dateiGroesse'] ?? ''));
-		$zeilen  = is_array($daten['zeilen'] ?? null) ? $daten['zeilen'] : [];
-		$treffer = (int) ($daten['trefferGesamt'] ?? -1);
-		$von     = (int) ($daten['bereichVon'] ?? 0);
-		$bis     = (int) ($daten['bereichBis'] ?? 0);
-		$ts      = htmlspecialchars((string) ($daten['zeitstempel'] ?? ''));
+		$instanzId  = $this->InstanceID;
+		$status     = is_array($daten['status'] ?? null) ? $daten['status'] : [];
+		$zeilen     = is_array($daten['zeilen'] ?? null) ? $daten['zeilen'] : [];
+		$logDatei   = (string) ($daten['logDatei'] ?? '');
+		$dateiGroesse = htmlspecialchars((string) ($daten['dateiGroesse'] ?? ''));
+		$treffer    = (int) ($daten['trefferGesamt'] ?? -1);
+		$von        = (int) ($daten['bereichVon'] ?? 0);
+		$bis        = (int) ($daten['bereichBis'] ?? 0);
+		$ts         = htmlspecialchars((string) ($daten['zeitstempel'] ?? ''));
+		$seite      = (int) ($status['seite'] ?? 0);
+		$maxZeilen  = (int) ($daten['maxZeilen'] ?? 50);
+		$modus      = htmlspecialchars((string) ($daten['betriebsmodus'] ?? 'standard'));
+		$hatWeitere = (bool) ($daten['hatWeitere'] ?? false);
+		$laedtTab   = (bool) ($daten['tabellenLadungLaeuft'] ?? false);
+		$laedtZaehl = (bool) ($daten['zaehlungLaeuft'] ?? false);
+		$laedtFilter= (bool) ($daten['filterMetadatenLaeuft'] ?? false);
+		$laedt      = ($laedtTab || $laedtZaehl || $laedtFilter) ? ' active' : '';
+		$laedtText  = htmlspecialchars((string) ($daten['tabellenLadungText'] ?? ''));
+		$aktiveTypen   = json_encode(array_values((array) ($status['filterTypen'] ?? [])));
+		$aktiveSender  = json_encode(array_values((array) ($status['senderFilter'] ?? [])));
+		$textFilter    = htmlspecialchars((string) ($status['textFilter'] ?? ''));
+		$objektFilter  = htmlspecialchars((string) ($status['objektIdFilter'] ?? ''));
+		$verfTypen     = json_encode(array_values((array) ($daten['verfuegbareFilterTypen'] ?? [])));
+		$verfSender    = json_encode(array_values((array) ($daten['verfuegbareSender'] ?? [])));
+		$ladezeitTab   = (int) ($daten['ladezeitMs'] ?? 0);
+		$ladezeitFilt  = (int) ($daten['filterLadezeitMs'] ?? 0);
 
 		// Fehlerfall
+		$fehlerHtml = '';
 		if (!(bool) ($daten['ok'] ?? false)) {
 			$msg = htmlspecialchars((string) ($daten['fehlermeldung'] ?? 'Unbekannter Fehler'));
-			return "<div style=\"font-family:monospace;padding:10px;color:#f88;background:#1a1a1a;border-radius:4px;\">&#9888; {$msg}</div>";
+			$fehlerHtml = "<div class=\"la-message\">&#9888; {$msg}</div>";
 		}
 
-		// Farben je Log-Level
+		// Logdatei-Optionen
+		$logOptionen = '';
+		foreach ((array) ($daten['verfuegbareLogdateien'] ?? []) as $ld) {
+			$pfad    = htmlspecialchars((string) ($ld['pfad']    ?? ''));
+			$anzeige = htmlspecialchars((string) ($ld['anzeige'] ?? $pfad));
+			$sel     = ($pfad === $logDatei) ? ' selected' : '';
+			$logOptionen .= "<option value=\"{$pfad}\"{$sel}>{$anzeige}</option>";
+		}
+
+		// MaxZeilen-Optionen
+		$zeilenOptionen = '';
+		foreach ([20, 50, 100, 200, 500, 1000, 2000, 3000] as $z) {
+			$sel = ($z === $maxZeilen) ? ' selected' : '';
+			$zeilenOptionen .= "<option value=\"{$z}\"{$sel}>{$z}</option>";
+		}
+
+		// Betriebsmodus-Optionen
+		$modusOptionen = '';
+		foreach (['standard' => 'Standard', 'system' => 'System'] as $val => $lbl) {
+			$sel = ($val === $modus) ? ' selected' : '';
+			$modusOptionen .= "<option value=\"{$val}\"{$sel}>{$lbl}</option>";
+		}
+
+		// Ladebalken
+		$ladebarVisible = $laedt ? 'block' : 'none';
+		if ($laedtText === '') {
+			if ($laedtTab)   $laedtText = 'Tabelle wird geladen …';
+			elseif ($laedtZaehl) $laedtText = 'Treffer werden ermittelt …';
+			else              $laedtText = 'Filteroptionen werden geladen …';
+		}
+
+		// Metazeile
+		$metaTreffer = $laedtZaehl
+			? 'Treffer: wird ermittelt …'
+			: ($treffer >= 0 ? "Bereich: {$von}–{$bis} / {$treffer}" : 'Treffer: -');
+
+		// Tabellenbody
 		$typFarben = [
-			'DEBUG'   => '#7ecfff',
-			'INFO'    => '#aaffaa',
-			'WARNING' => '#ffd080',
-			'ERROR'   => '#ff7070',
-			'FATAL'   => '#ff4444',
-			'NOTIFY'  => '#d0aaff',
-			'SUCCESS' => '#88ffcc',
-			'MESSAGE' => '#cccccc',
+			'DEBUG' => '#7ecfff', 'INFO' => '#aaffaa', 'WARNING' => '#ffd080',
+			'ERROR' => '#ff7070', 'FATAL' => '#ff4444', 'NOTIFY' => '#d0aaff',
+			'SUCCESS' => '#88ffcc', 'MESSAGE' => '#cccccc',
 		];
-
-		// Kopfzeile
-		$trefferInfo = $treffer >= 0
-			? " &nbsp;&bull;&nbsp; <b>{$von}–{$bis}</b> / {$treffer} Eintr&auml;ge"
-			: '';
-
-		$html  = "<div style=\"font-family:monospace;font-size:12px;background:#1a1a1a;color:#ccc;padding:6px 8px;border-radius:4px;\">";
-		$html .= "<div style=\"margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid #2e2e2e;color:#888;font-size:11px;\">";
-		$html .= "&#128196; <b style=\"color:#eee;\">{$datei}</b>";
-		$html .= " &nbsp;&bull;&nbsp; {$groesse}";
-		$html .= $trefferInfo;
-		$html .= " &nbsp;&bull;&nbsp; <span style=\"color:#555;\">{$ts}</span>";
-		$html .= "</div>";
-
-		if (empty($zeilen)) {
-			$html .= "<div style=\"color:#555;padding:4px;\">Keine Eintr&auml;ge gefunden.</div>";
+		$tbodyHtml = '';
+		if ($laedtTab && empty($zeilen)) {
+			$tbodyHtml = '<tr><td colspan="5" class="la-empty">Lade Daten …</td></tr>';
+		} elseif (empty($zeilen)) {
+			$tbodyHtml = '<tr><td colspan="5" class="la-empty">Keine passenden Logzeilen gefunden.</td></tr>';
 		} else {
-			$html .= "<table style=\"width:100%;border-collapse:collapse;\">";
 			foreach ($zeilen as $z) {
 				$typ    = htmlspecialchars((string) ($z['typ']         ?? ''));
 				$sender = htmlspecialchars((string) ($z['sender']      ?? ''));
 				$msg    = htmlspecialchars((string) ($z['meldung']     ?? ''));
 				$zeit   = htmlspecialchars((string) ($z['zeitstempel'] ?? ''));
+				$oid    = htmlspecialchars((string) ($z['objektId']    ?? ''));
 				$farbe  = $typFarben[strtoupper($typ)] ?? '#cccccc';
-
-				$html .= "<tr style=\"border-bottom:1px solid #222;\">";
-				$html .= "<td style=\"color:#555;white-space:nowrap;padding:2px 8px 2px 0;vertical-align:top;\">{$zeit}</td>";
-				$html .= "<td style=\"color:{$farbe};white-space:nowrap;padding:2px 8px;vertical-align:top;min-width:65px;\">{$typ}</td>";
-				$html .= "<td style=\"color:#888;white-space:nowrap;padding:2px 8px;vertical-align:top;\">{$sender}</td>";
-				$html .= "<td style=\"padding:2px 0 2px 4px;word-break:break-word;vertical-align:top;\">{$msg}</td>";
-				$html .= "</tr>";
+				$tbodyHtml .= "<tr>
+					<td class=\"la-col-zeit\">{$zeit}</td>
+					<td class=\"la-col-oid\" ondblclick=\"oidInFilter('{$oid}')\" title=\"Doppelklick → ObjektID in Filter\">{$oid}</td>
+					<td class=\"la-col-typ\" style=\"color:{$farbe}\">{$typ}</td>
+					<td class=\"la-col-sender\">{$sender}</td>
+					<td class=\"la-col-msg\">{$msg}</td>
+				</tr>";
 			}
-			$html .= "</table>";
 		}
 
-		$html .= "</div>";
-		return $html;
+		// Buttons
+		$disZurueck = ($seite <= 0) ? ' disabled' : '';
+		if ($treffer >= 0 && $maxZeilen > 0) {
+			$maxSeite = max(0, (int) ceil($treffer / $maxZeilen) - 1);
+			$disVor   = ($seite >= $maxSeite) ? ' disabled' : '';
+		} else {
+			$disVor = $hatWeitere ? '' : ' disabled';
+		}
+
+		// JSON-RPC URL
+		$rpcUrl = 'http://' . $_SERVER['SERVER_NAME'] . ':3777/api/';
+
+		return <<<HTML
+<!doctype html><html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;background:#111;color:#ddd}
+.la-wrap{padding:10px;display:grid;gap:10px}
+.la-card{background:rgba(30,30,30,.95);border:1px solid rgba(255,255,255,.1);border-radius:10px;overflow:visible}
+.la-toolbar{padding:10px;background:rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.08);display:grid;gap:10px}
+.la-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+label.la-lbl{display:grid;gap:4px;font-size:11px;color:#999}
+input,select{width:100%;min-height:32px;border-radius:6px;border:1px solid rgba(255,255,255,.15);background:rgba(0,0,0,.3);color:#ddd;padding:6px 8px;font-size:12px;color-scheme:dark}
+input:focus,select:focus,button:focus{outline:none;border-color:rgba(77,163,255,.5);box-shadow:0 0 0 3px rgba(77,163,255,.12)}
+.la-btnrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.la-inline{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;min-width:120px}
+.la-inline span{font-size:11px;color:#999}
+.la-inline select{width:auto;flex:1 1 auto;min-height:28px;padding:4px 6px;font-size:11px}
+button{min-height:28px;padding:5px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.15);background:rgba(77,163,255,.18);color:#ddd;cursor:pointer;white-space:nowrap;transition:transform .1s,opacity .1s;font-size:12px}
+button:hover{transform:translateY(-1px)}
+button.sec{background:rgba(255,255,255,.07)}
+button:disabled{opacity:.4;cursor:default;transform:none}
+.la-meta{display:flex;flex-wrap:wrap;gap:10px;padding:8px 12px;font-size:11px;color:#777;border-bottom:1px solid rgba(255,255,255,.06)}
+.la-loader{padding:6px 12px;display:none}
+.la-loader.active{display:block}
+.la-loader-track{height:5px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;position:relative}
+.la-loader-bar{position:absolute;top:0;left:-30%;width:30%;height:100%;border-radius:999px;background:rgba(77,163,255,.85);animation:la-run 1.4s ease-in-out infinite alternate}
+@keyframes la-run{from{left:-30%}to{left:100%}}
+.la-loader-txt{margin-top:6px;font-size:11px;color:#666;text-align:center}
+.la-message{padding:10px 12px;color:#f99;border-top:1px solid rgba(255,255,255,.08)}
+.la-table-wrap{overflow:auto;max-height:65vh}
+table{width:100%;border-collapse:collapse;font-size:12px}
+thead th{position:sticky;top:0;z-index:2;text-align:left;padding:7px 8px;background:#7a4400;color:#fff;border-bottom:1px solid rgba(255,255,255,.15);border-right:1px solid rgba(255,255,255,.08)}
+thead th:last-child{border-right:none}
+tbody td{padding:7px 8px;border-bottom:1px solid rgba(255,255,255,.07);border-right:1px solid rgba(255,255,255,.06);vertical-align:top}
+tbody td:last-child{border-right:none}
+tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
+.la-col-zeit{width:155px;white-space:nowrap;color:#666;font-size:11px}
+.la-col-oid{width:80px;white-space:nowrap;cursor:pointer}
+.la-col-typ{width:100px;white-space:nowrap;font-weight:bold;font-size:11px}
+.la-col-sender{width:200px;color:#aaa;font-size:11px}
+.la-col-msg{word-break:break-word}
+.la-empty{padding:14px;color:#555}
+/* Multi-Select Dropdown */
+.ms-wrap{position:relative}
+.ms-btn{width:100%;min-height:32px;border-radius:6px;border:1px solid rgba(255,255,255,.15);background:rgba(0,0,0,.3);color:#ddd;padding:6px 8px;text-align:left;display:flex;align-items:center;justify-content:space-between;font-size:12px}
+.ms-btn::after{content:"▾";opacity:.7;margin-left:8px}
+.ms-drop{position:absolute;top:calc(100% + 3px);left:0;right:0;z-index:99;display:none;background:rgba(30,30,30,.98);border:1px solid rgba(255,255,255,.15);border-radius:6px;padding:8px;box-shadow:0 8px 20px rgba(0,0,0,.4)}
+.ms-wrap.open .ms-drop{display:block}
+.ms-opts{display:grid;gap:5px;max-height:200px;overflow-y:auto}
+.ms-opt{display:flex;align-items:center;gap:7px;font-size:12px;color:#ddd}
+.ms-opt input[type=checkbox]{width:auto;min-height:0;margin:0;padding:0}
+</style></head>
+<body>
+<div class="la-wrap"><div class="la-card">
+
+  <div class="la-toolbar">
+    <div class="la-grid">
+      <label class="la-lbl">Logdatei
+        <select id="laLogDatei" onchange="la('LogDateiAuswaehlen',this.value)">{$logOptionen}</select>
+      </label>
+      <label class="la-lbl">Zeilen pro Seite
+        <select id="laMaxZeilen" onchange="la('SetzeMaxZeilen',parseInt(this.value))">{$zeilenOptionen}</select>
+      </label>
+      <label class="la-lbl">ObjektID
+        <input id="laObjektId" type="text" placeholder="z. B. 12345, 67890" value="{$objektFilter}">
+      </label>
+      <label class="la-lbl">Meldungstyp
+        <div class="ms-wrap" id="msTypWrap">
+          <button type="button" class="ms-btn" id="msTypBtn" onclick="msToggle('msTypWrap',event)">Alle</button>
+          <div class="ms-drop"><div class="ms-opts" id="msTypOpts"></div></div>
+        </div>
+      </label>
+      <label class="la-lbl">Sender
+        <div class="ms-wrap" id="msSndWrap">
+          <button type="button" class="ms-btn" id="msSndBtn" onclick="msToggle('msSndWrap',event)">Alle</button>
+          <div class="ms-drop"><div class="ms-opts" id="msSndOpts"></div></div>
+        </div>
+      </label>
+      <label class="la-lbl">Meldung enthält
+        <input id="laText" type="text" placeholder="Freitext" value="{$textFilter}">
+      </label>
+    </div>
+    <div class="la-btnrow">
+      <label class="la-inline"><span>Mode:</span>
+        <select id="laModus" onchange="la('SetzeBetriebsmodus',this.value)">{$modusOptionen}</select>
+      </label>
+      <button onclick="laFilter()">Filter anwenden</button>
+      <button class="sec" onclick="la('Aktualisieren','')">Aktualisieren</button>
+      <button class="sec" id="btnNeu" {$disZurueck} onclick="la('SeiteZurueck','')">Neuere</button>
+      <button class="sec" id="btnAlt" {$disVor} onclick="la('SeiteVor','')">Ältere</button>
+    </div>
+  </div>
+
+  <div class="la-meta">
+    <span>Datei: {$logDatei}</span>
+    <span>Größe: {$dateiGroesse}</span>
+    <span>Seite: {$seite}</span>
+    <span>{$metaTreffer}</span>
+    <span>Tab: {$ladezeitTab} ms</span>
+    <span>Filter: {$ladezeitFilt} ms</span>
+    <span>Stand: {$ts}</span>
+  </div>
+
+  <div class="la-loader{$laedt}" id="laLoader" style="display:{$ladebarVisible}">
+    <div class="la-loader-track"><div class="la-loader-bar"></div></div>
+    <div class="la-loader-txt" id="laLoaderTxt">{$laedtText}</div>
+  </div>
+
+  {$fehlerHtml}
+
+  <div class="la-table-wrap">
+    <table>
+      <thead><tr>
+        <th class="la-col-zeit">Zeit</th>
+        <th class="la-col-oid">ObjektID</th>
+        <th class="la-col-typ">Typ</th>
+        <th class="la-col-sender">Sender</th>
+        <th>Meldung</th>
+      </tr></thead>
+      <tbody>{$tbodyHtml}</tbody>
+    </table>
+  </div>
+</div></div>
+
+<script>
+const IPS_ID = {$instanzId};
+const RPC_URL = '{$rpcUrl}';
+const VERF_TYPEN  = {$verfTypen};
+const VERF_SENDER = {$verfSender};
+const AKT_TYPEN   = {$aktiveTypen};
+const AKT_SENDER  = {$aktiveSender};
+
+// IPS JSON-RPC Aufruf
+function la(ident, value) {
+  fetch(RPC_URL, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      jsonrpc: '2.0', method: 'IPS_RequestAction', id: 1,
+      params: {InstanceID: IPS_ID, Ident: ident, Value: value}
+    })
+  }).catch(e => console.error('IPS RPC Fehler', e));
+}
+
+// Filter sammeln und senden
+function laFilter() {
+  la('FilterAnwenden', JSON.stringify({
+    filterTypen:   msGetSelected('msTypOpts'),
+    objektIdFilter: document.getElementById('laObjektId').value.trim(),
+    senderFilter:  msGetSelected('msSndOpts'),
+    textFilter:    document.getElementById('laText').value.trim()
+  }));
+}
+
+// ObjektID in Filterfeld übernehmen (Doppelklick)
+function oidInFilter(id) {
+  const inp = document.getElementById('laObjektId');
+  const existing = inp.value.split(/[\s,;]+/).map(v => v.trim()).filter(Boolean);
+  if (!existing.includes(id)) existing.push(id);
+  inp.value = existing.join(', ');
+}
+
+// Multi-Select: Toggle
+function msToggle(wrapId, event) {
+  event.stopPropagation();
+  document.querySelectorAll('.ms-wrap').forEach(w => {
+    if (w.id !== wrapId) w.classList.remove('open');
+  });
+  document.getElementById(wrapId).classList.toggle('open');
+}
+
+// Multi-Select: Optionen befüllen
+function msFill(optsId, verfuegbar, aktiv) {
+  const all = [...new Set([...verfuegbar, ...aktiv])].filter(Boolean);
+  const c = document.getElementById(optsId);
+  c.innerHTML = '';
+  all.forEach(v => {
+    const lbl = document.createElement('label');
+    lbl.className = 'ms-opt';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.value = v; cb.checked = aktiv.includes(v);
+    cb.addEventListener('change', () => msUpdateBtn(optsId));
+    lbl.appendChild(cb);
+    lbl.appendChild(document.createTextNode(' ' + v));
+    c.appendChild(lbl);
+  });
+  msUpdateBtn(optsId);
+}
+
+// Multi-Select: Button-Text aktualisieren
+function msUpdateBtn(optsId) {
+  const btnMap = {msTypOpts: 'msTypBtn', msSndOpts: 'msSndBtn'};
+  const sel = msGetSelected(optsId);
+  const btn = document.getElementById(btnMap[optsId]);
+  btn.textContent = sel.length === 0 ? 'Alle' : (sel.length <= 2 ? sel.join(', ') : sel.length + ' ausgewählt');
+}
+
+// Multi-Select: Selektierte Werte lesen
+function msGetSelected(optsId) {
+  return Array.from(document.querySelectorAll('#' + optsId + ' input[type=checkbox]:checked')).map(i => i.value);
+}
+
+// Dropdowns schließen bei Klick außerhalb
+document.addEventListener('click', () => {
+  document.querySelectorAll('.ms-wrap').forEach(w => w.classList.remove('open'));
+});
+
+// Init
+msFill('msTypOpts', VERF_TYPEN, AKT_TYPEN);
+msFill('msSndOpts', VERF_SENDER, AKT_SENDER);
+</script>
+</body></html>
+HTML;
 	}
+
 
 	private function aktualisiereVisualisierung(): void
 	{
