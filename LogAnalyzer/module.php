@@ -789,99 +789,55 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
 <script>
 const IPS_ID      = {$instanzId};
 const HTMLBOX_VAR = {$htmlboxVarId};
-const RPC_URL  = '{$rpcUrl}';
-const HAS_AUTH = {$hasAuth};
-const IPS_USER = {$ipsUserJson};
-const IPS_PASS = {$ipsPassJson};
+const RPC_URL     = '{$rpcUrl}';
+const HAS_AUTH    = {$hasAuth};
+const IPS_USER    = {$ipsUserJson};
+const IPS_PASS    = {$ipsPassJson};
 const VERF_TYPEN  = {$verfTypen};
 const VERF_SENDER = {$verfSender};
 const AKT_TYPEN   = {$aktiveTypen};
 const AKT_SENDER  = {$aktiveSender};
 
-// IPS JSON-RPC Hilfsfunktion
+// IPS JSON-RPC
 function rpc(method, params) {
-  const headers = {'Content-Type': 'application/json'};
-  if (HAS_AUTH) {
-    headers['Authorization'] = 'Basic ' + btoa(IPS_USER + ':' + IPS_PASS);
-  }
+  const h = {'Content-Type': 'application/json'};
+  if (HAS_AUTH) h['Authorization'] = 'Basic ' + btoa(IPS_USER + ':' + IPS_PASS);
   return fetch(RPC_URL, {
-    method: 'POST',
-    credentials: 'include',
-    headers: headers,
-    body: JSON.stringify({jsonrpc: '2.0', method: method, id: 1, params: params})
+    method: 'POST', credentials: 'include', headers: h,
+    body: JSON.stringify({jsonrpc:'2.0', method:method, id:1, params:params})
   }).then(r => r.json());
 }
 
-// Ladebalken und Buttons sperren
-function laSetLoading(text) {
+// Ladeindikator anzeigen
+function laSetLoading() {
   document.querySelectorAll('button').forEach(b => b.disabled = true);
-  const loader = document.getElementById('laLoader');
-  const loaderTxt = document.getElementById('laLoaderTxt');
-  if (loader) loader.style.display = 'block';
-  if (loaderTxt) loaderTxt.textContent = text || 'Wird verarbeitet …';
+  const l = document.getElementById('laLoader');
+  const t = document.getElementById('laLoaderTxt');
+  if (l) l.style.display = 'block';
+  if (t) t.textContent = 'Wird verarbeitet …';
 }
 
-// Neuen HTML-Inhalt aus HTMLBOX-Variable holen und DOM ersetzen
-function laRefreshContent() {
-  return rpc('GetValue', {VariableID: HTMLBOX_VAR})
-    .then(resp => {
-      if (resp && resp.result !== undefined) {
-        const parser = new DOMParser();
-        const newDoc = parser.parseFromString(resp.result, 'text/html');
-        const newWrapper = newDoc.querySelector('.la-wrap');
-        const curWrapper = document.querySelector('.la-wrap');
-        if (newWrapper && curWrapper) {
-          curWrapper.innerHTML = newWrapper.innerHTML;
-          // Multi-Select Dropdowns neu initialisieren nach DOM-Update
-          const newScripts = newDoc.querySelectorAll('script');
-          newScripts.forEach(s => {
-            // VERF_TYPEN/VERF_SENDER aus neuem HTML extrahieren und msFill aufrufen
-            const m1 = s.textContent.match(/const VERF_TYPEN\s*=\s*(\[.*?\]);/s);
-            const m2 = s.textContent.match(/const VERF_SENDER\s*=\s*(\[.*?\]);/s);
-            const m3 = s.textContent.match(/const AKT_TYPEN\s*=\s*(\[.*?\]);/s);
-            const m4 = s.textContent.match(/const AKT_SENDER\s*=\s*(\[.*?\]);/s);
-            if (m1 && m2) {
-              try {
-                const vt = JSON.parse(m1[1]);
-                const vs = JSON.parse(m2[1]);
-                const at = m3 ? JSON.parse(m3[1]) : [];
-                const as2 = m4 ? JSON.parse(m4[1]) : [];
-                msFill('msTypOpts', vt, at);
-                msFill('msSndOpts', vs, as2);
-              } catch(e) { console.warn('msFill init Fehler', e); }
-            }
-          });
-        } else {
-          // Fallback: gesamtes HTML neu schreiben
-          document.open();
-          document.write(resp.result);
-          document.close();
-        }
-      }
-    })
-    .catch(e => console.error('laRefreshContent Fehler', e));
-}
-
-// Aktion senden, dann auf Ergebnis warten und DOM aktualisieren (KEIN location.reload)
+// Aktion senden und danach Seite mit neuem HTML-Box-Inhalt ersetzen
 function la(ident, value) {
-  laSetLoading('Wird verarbeitet …');
-
+  laSetLoading();
   rpc('IPS_RequestAction', {InstanceID: IPS_ID, Ident: ident, Value: value})
     .then(resp => {
-      if (resp && resp.error) {
-        console.warn('IPS RequestAction Fehler', resp.error);
-      }
-      // Kurz warten bis PHP fertig ist, dann neuen Inhalt laden
-      return new Promise(resolve => setTimeout(resolve, 500));
+      if (resp && resp.error) console.warn('RequestAction Fehler', resp.error);
+      // 600ms warten bis PHP SetValue() abgeschlossen hat
+      return new Promise(r => setTimeout(r, 600));
     })
-    .then(() => laRefreshContent())
-    .catch(e => {
-      console.error('IPS RPC Fehler', e);
-      laRefreshContent();
-    });
+    .then(() => rpc('GetValue', {VariableID: HTMLBOX_VAR}))
+    .then(resp => {
+      if (resp && resp.result) {
+        document.open('text/html', 'replace');
+        document.write(resp.result);
+        document.close();
+      }
+    })
+    .catch(e => console.error('IPS Fehler', e));
 }
 
-// Filter sammeln und senden
+// Filter anwenden
 function laFilter() {
   la('FilterAnwenden', JSON.stringify({
     filterTypen:    msGetSelected('msTypOpts'),
@@ -891,15 +847,15 @@ function laFilter() {
   }));
 }
 
-// ObjektID in Filterfeld übernehmen (Doppelklick)
+// ObjektID per Doppelklick in Filter übernehmen
 function oidInFilter(id) {
   const inp = document.getElementById('laObjektId');
-  const existing = inp.value.split(/[\s,;]+/).map(v => v.trim()).filter(Boolean);
-  if (!existing.includes(id)) existing.push(id);
-  inp.value = existing.join(', ');
+  const ex = inp.value.split(/[\s,;]+/).map(v=>v.trim()).filter(Boolean);
+  if (!ex.includes(id)) ex.push(id);
+  inp.value = ex.join(', ');
 }
 
-// Multi-Select: Toggle
+// Multi-Select Toggle
 function msToggle(wrapId, event) {
   event.stopPropagation();
   document.querySelectorAll('.ms-wrap').forEach(w => {
@@ -908,10 +864,11 @@ function msToggle(wrapId, event) {
   document.getElementById(wrapId).classList.toggle('open');
 }
 
-// Multi-Select: Optionen befüllen
+// Multi-Select befüllen
 function msFill(optsId, verfuegbar, aktiv) {
   const all = [...new Set([...verfuegbar, ...aktiv])].filter(Boolean);
   const c = document.getElementById(optsId);
+  if (!c) return;
   c.innerHTML = '';
   all.forEach(v => {
     const lbl = document.createElement('label');
@@ -926,20 +883,21 @@ function msFill(optsId, verfuegbar, aktiv) {
   msUpdateBtn(optsId);
 }
 
-// Multi-Select: Button-Text aktualisieren
+// Multi-Select Button-Text
 function msUpdateBtn(optsId) {
-  const btnMap = {msTypOpts: 'msTypBtn', msSndOpts: 'msSndBtn'};
+  const btnMap = {msTypOpts:'msTypBtn', msSndOpts:'msSndBtn'};
   const sel = msGetSelected(optsId);
   const btn = document.getElementById(btnMap[optsId]);
+  if (!btn) return;
   btn.textContent = sel.length === 0 ? 'Alle' : (sel.length <= 2 ? sel.join(', ') : sel.length + ' ausgewählt');
 }
 
-// Multi-Select: Selektierte Werte lesen
+// Multi-Select Werte lesen
 function msGetSelected(optsId) {
   return Array.from(document.querySelectorAll('#' + optsId + ' input[type=checkbox]:checked')).map(i => i.value);
 }
 
-// Dropdowns schließen bei Klick außerhalb
+// Dropdowns bei Klick außerhalb schließen
 document.addEventListener('click', () => {
   document.querySelectorAll('.ms-wrap').forEach(w => w.classList.remove('open'));
 });
@@ -1033,25 +991,25 @@ HTML;
 	{
 		$status = $this->leseStatus();
 
-		// IPSView: Filtermetadaten synchron laden wenn Cache leer oder ungültig
+				// IPSView: Filtermetadaten direkt laden (synchron, ohne Signatur-Cache-Prüfung)
 		$filterMetadaten = $this->leseFilterMetadatenFuerAnzeige();
-		if (!(bool) ($filterMetadaten['geladen'] ?? false)) {
+		if (empty($filterMetadaten['verfuegbareFilterTypen']) && empty($filterMetadaten['verfuegbareSender'])) {
 			$logDateiCheck = $this->leseAktuelleLogDatei();
 			if (is_file($logDateiCheck)) {
-				$dateiGroesseCheck = (int) filesize($logDateiCheck);
-				$dateiMTimeCheck   = (int) filemtime($logDateiCheck);
 				$ermittelt = $this->ermittleFilterMetadaten();
+				$filterMetadaten['verfuegbareFilterTypen'] = $ermittelt['verfuegbareFilterTypen'] ?? [];
+				$filterMetadaten['verfuegbareSender']      = $ermittelt['verfuegbareSender'] ?? [];
+				// Cache schreiben damit nächster Aufruf schneller ist
 				$metaRoh = $this->leseFilterMetadatenRoh();
-				$metaRoh['verfuegbareFilterTypen'] = $ermittelt['verfuegbareFilterTypen'];
-				$metaRoh['verfuegbareSender']      = $ermittelt['verfuegbareSender'];
+				$metaRoh['verfuegbareFilterTypen'] = $filterMetadaten['verfuegbareFilterTypen'];
+				$metaRoh['verfuegbareSender']      = $filterMetadaten['verfuegbareSender'];
 				$metaRoh['gesamtZeilenCache']      = (int) ($ermittelt['gesamtZeilen'] ?? -1);
-				$metaRoh['dateiGroesseCache']      = $dateiGroesseCheck;
-				$metaRoh['dateiMTimeCache']        = $dateiMTimeCheck;
+				$metaRoh['dateiGroesseCache']      = (int) filesize($logDateiCheck);
+				$metaRoh['dateiMTimeCache']        = (int) filemtime($logDateiCheck);
 				$metaRoh['ladezeitMs']             = 0;
 				$metaRoh['laedt']                  = false;
 				$metaRoh['signatur']               = $this->ermittleFilterMetadatenSignatur($this->leseStatus());
 				$this->schreibeFilterMetadaten($metaRoh);
-				$filterMetadaten = $this->leseFilterMetadatenFuerAnzeige();
 			}
 		}
 
