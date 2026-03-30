@@ -47,6 +47,8 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		$this->RegisterPropertyBoolean('VerwendeSift', false);
 		$this->RegisterPropertyInteger('AutoRefreshSekunden', 0);
 		$this->RegisterPropertyString('Betriebsmodus', 'standard');
+		$this->RegisterPropertyString('IpsUsername', '');
+		$this->RegisterPropertyString('IpsPassword', '');
 
 		$this->RegisterAttributeString(self::ATTR_STATUS, json_encode([
 			'seite'                    => 0,
@@ -168,6 +170,21 @@ class LogAnalyzerIPSView extends IPSModuleStrict
             [
                 'type'    => 'Label',
                 'caption' => 'Die Variable "HTMLBOX" in IPSView als HTML-Box einbinden.'
+            ],
+            [
+                'type'    => 'Label',
+                'bold'    => true,
+                'caption' => 'IPS-Zugangsdaten für JSON-RPC (nur nötig wenn IPS Authentifizierung aktiviert ist)'
+            ],
+            [
+                'type'    => 'ValidationTextBox',
+                'name'    => 'IpsUsername',
+                'caption' => 'Benutzername'
+            ],
+            [
+                'type'    => 'PasswordTextBox',
+                'name'    => 'IpsPassword',
+                'caption' => 'Passwort'
             ],
         ];
 
@@ -640,7 +657,13 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		}
 
 		// JSON-RPC URL
-		$rpcUrl = 'http://' . $_SERVER['SERVER_NAME'] . ':3777/api/';
+		// Relativer Pfad – funktioniert da die HTML-Box über den IPS-Webserver ausgeliefert wird
+		$rpcUrl = '/api/';
+		$ipsUser = (string) $this->ReadPropertyString('IpsUsername');
+		$ipsPass = (string) $this->ReadPropertyString('IpsPassword');
+		$hasAuth    = ($ipsUser !== '') ? 'true' : 'false';
+		$ipsUserJson = json_encode($ipsUser);
+		$ipsPassJson = json_encode($ipsPass);
 
 		return <<<HTML
 <!doctype html><html lang="de"><head><meta charset="utf-8">
@@ -767,32 +790,62 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
 </div></div>
 
 <script>
-const IPS_ID = {$instanzId};
-const RPC_URL = '{$rpcUrl}';
+const IPS_ID   = {$instanzId};
+const RPC_URL  = '{$rpcUrl}';
+const HAS_AUTH = {$hasAuth};
+const IPS_USER = {$ipsUserJson};
+const IPS_PASS = {$ipsPassJson};
 const VERF_TYPEN  = {$verfTypen};
 const VERF_SENDER = {$verfSender};
 const AKT_TYPEN   = {$aktiveTypen};
 const AKT_SENDER  = {$aktiveSender};
 
-// IPS JSON-RPC Aufruf
+// IPS JSON-RPC Aufruf – wartet auf Antwort, dann Seite neu laden
 function la(ident, value) {
+  // Buttons während der Verarbeitung deaktivieren
+  document.querySelectorAll('button').forEach(b => b.disabled = true);
+  // Ladebalken anzeigen
+  const loader = document.getElementById('laLoader');
+  const loaderTxt = document.getElementById('laLoaderTxt');
+  if (loader) { loader.style.display = 'block'; }
+  if (loaderTxt) { loaderTxt.textContent = 'Wird verarbeitet …'; }
+
   fetch(RPC_URL, {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
+    credentials: 'include',   // Session-Cookie mitschicken (IPSView-Login)
+    headers: HAS_AUTH
+      ? {'Content-Type': 'application/json', 'Authorization': 'Basic ' + btoa(IPS_USER + ':' + IPS_PASS)}
+      : {'Content-Type': 'application/json'},
     body: JSON.stringify({
       jsonrpc: '2.0', method: 'IPS_RequestAction', id: 1,
       params: {InstanceID: IPS_ID, Ident: ident, Value: value}
     })
-  }).catch(e => console.error('IPS RPC Fehler', e));
+  })
+  .then(r => r.json())
+  .then(resp => {
+    if (resp.error) {
+      console.error('IPS RPC Fehler', resp.error);
+      // Bei Auth-Fehler Hinweis anzeigen
+      if (resp.error.code === -32602 || resp.error.code === -32700) {
+        alert('IPS Fehler: ' + resp.error.message);
+      }
+    }
+    // Nach erfolgreicher Aktion Seite neu laden um neue HTML-Box-Daten zu zeigen
+    setTimeout(() => location.reload(), 300);
+  })
+  .catch(e => {
+    console.error('IPS RPC Netzwerkfehler', e);
+    setTimeout(() => location.reload(), 500);
+  });
 }
 
 // Filter sammeln und senden
 function laFilter() {
   la('FilterAnwenden', JSON.stringify({
-    filterTypen:   msGetSelected('msTypOpts'),
+    filterTypen:    msGetSelected('msTypOpts'),
     objektIdFilter: document.getElementById('laObjektId').value.trim(),
-    senderFilter:  msGetSelected('msSndOpts'),
-    textFilter:    document.getElementById('laText').value.trim()
+    senderFilter:   msGetSelected('msSndOpts'),
+    textFilter:     document.getElementById('laText').value.trim()
   }));
 }
 
