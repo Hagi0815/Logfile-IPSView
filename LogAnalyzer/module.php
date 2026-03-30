@@ -340,6 +340,17 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 					$this->aktualisiereVisualisierung();
 					return;
 				case 'Laden':
+				case 'FilterReset':
+					$status['filterTypen']    = [];
+					$status['senderFilter']   = [];
+					$status['textFilter']     = '';
+					$status['objektIdFilter'] = '';
+					$status['seite']          = 0;
+					$status['trefferGesamt']  = -1;
+					$this->schreibeStatus($status);
+					$this->leereSeitenCache();
+					$this->aktualisiereVisualisierung();
+					return;
 				case 'Aktualisieren':
 					$status['trefferGesamt'] = -1;
 					$status['zaehlungLaeuft'] = false;
