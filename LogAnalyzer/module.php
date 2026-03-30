@@ -201,13 +201,31 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			]
         ];
 
+        $hookPfad = '/hook/LogAnalyzerIPSView_' . $id;
+
         $actions = [
             [
                 'type'    => 'Button',
-                'caption' => 'Visualisierung aktualisieren',
+                'caption' => 'HTML-Box aktualisieren',
                 'onClick' => 'LOGANALYZER_AktualisierenVisualisierung($id);'
             ],
-
+            [
+                'type'    => 'Label',
+                'bold'    => true,
+                'caption' => '── WebHook Einrichtung (einmalig erforderlich) ──'
+            ],
+            [
+                'type'    => 'Label',
+                'caption' => 'Schritt 1: IPS-Verwaltung → Kern → Ereignisse → WebHooks → Neu (+)'
+            ],
+            [
+                'type'    => 'Label',
+                'caption' => 'Schritt 2: Hook-Pfad eintragen: ' . $hookPfad
+            ],
+            [
+                'type'    => 'Label',
+                'caption' => 'Schritt 3: Script wählen: "WebHook Handler" (sichtbar unter dieser Instanz nach erstem Speichern)'
+            ],
         ];
 
         return json_encode([
@@ -569,20 +587,16 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 	private function erstelleOderAktualisierHookScript(): void
 	{
 		$instanzId = $this->InstanceID;
-		$hookPfad  = '/hook/LogAnalyzerIPSView_' . $instanzId;
 		$ident     = 'WebHookScript';
 
-		// Script-Code lesen aus externer Datei
+		// Hook-Handler-Code aus externer Datei laden
 		$handlerFile = __DIR__ . '/libs/hook_handler.php';
 		$handlerCode = is_file($handlerFile) ? file_get_contents($handlerFile) : '<?php echo "Handler fehlt";';
 
-		// Instanz-ID in Script einbetten
-		$scriptCode = "<?php
-// Auto-generiert von Log Analyzer IPSView
-\$LOGANALYZER_INSTANCE_ID = {$instanzId};
-?>
-"
-			. substr($handlerCode, 5); // <?php entfernen
+		// Instanz-ID einbetten
+		$scriptCode = "<?php\n// Auto-generiert von Log Analyzer IPSView - nicht manuell bearbeiten\n"
+			. "\$LOGANALYZER_INSTANCE_ID = {$instanzId};\n"
+			. ltrim(substr($handlerCode, strpos($handlerCode, '<?php') + 5));
 
 		// Script anlegen oder aktualisieren
 		$scriptId = @IPS_GetObjectIDByIdent($ident, $instanzId);
@@ -593,22 +607,11 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			IPS_SetName($scriptId, 'WebHook Handler');
 			IPS_SetHidden($scriptId, true);
 		}
-
 		IPS_SetScriptContent((int)$scriptId, $scriptCode);
 
-		// Als WebHook registrieren
-		if (function_exists('IPS_GetHookList') && function_exists('IPS_SetHook')) {
-			$vorhandeneHooks = IPS_GetHookList();
-			if (!array_key_exists($hookPfad, $vorhandeneHooks) ||
-				(int)$vorhandeneHooks[$hookPfad] !== (int)$scriptId) {
-				IPS_SetHook($hookPfad, (int)$scriptId);
-			}
-		} else {
-			$this->SendDebug('Hook', 'IPS_SetHook nicht verfügbar - Hook manuell unter /hook/LogAnalyzerIPSView_' . $instanzId . ' registrieren', 0);
-		}
-
-		$this->SendDebug('Hook', "Script-ID={$scriptId} Pfad={$hookPfad}", 0);
+		$this->SendDebug('HookScript', "Script-ID={$scriptId}", 0);
 	}
+
 
 	public function AktualisierenVisualisierung(): void
 	{
