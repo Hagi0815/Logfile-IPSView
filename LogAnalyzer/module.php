@@ -550,9 +550,20 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			$this->SendDebug('Hook Fehler', $e->getMessage(), 0);
 		}
 
-		// Visualisierung aktualisieren und ausgeben
-		$this->aktualisiereVisualisierung();
-		echo $this->GetValue('HTMLBOX');
+		// Visualisierung aktualisieren und ausgeben - alle Exceptions abfangen
+		try {
+			$this->aktualisiereVisualisierung();
+		} catch (\Throwable $e) {
+			$this->SendDebug('Hook Visualisierung Fehler', $e->getMessage(), 0);
+		}
+
+		$html = '';
+		try {
+			$html = $this->GetValue('HTMLBOX');
+		} catch (\Throwable $e) {
+			$html = '<html><body style="background:#111;color:#f88;padding:20px;font-family:monospace">Hook Fehler: ' . htmlspecialchars($e->getMessage()) . '</body></html>';
+		}
+		echo $html;
 	}
 
 	public function AktualisierenVisualisierung(): void
