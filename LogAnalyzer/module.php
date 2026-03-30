@@ -91,6 +91,22 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		// HTML-Box Variable für IPSView
 		$this->RegisterVariableString('HTMLBOX', 'Log Anzeige', '~HTMLBox');
 
+		// Filter-Steuerungsvariablen (im WebFront setzbar)
+		$this->RegisterVariableString('FILTER_LOGDATEI', 'Logdatei', '', true);
+		$this->RegisterVariableString('FILTER_TYP',      'Filter Typ', '', true);
+		$this->RegisterVariableString('FILTER_SENDER',   'Filter Sender', '', true);
+		$this->RegisterVariableString('FILTER_TEXT',     'Filter Text', '', true);
+		$this->RegisterVariableInteger('FILTER_SEITE',   'Seite', '', true);
+		$this->RegisterVariableInteger('FILTER_MAXZEILEN', 'Max. Zeilen', '', true);
+
+		// Aktionen für die Filter-Variablen aktivieren
+		$this->EnableAction('FILTER_LOGDATEI');
+		$this->EnableAction('FILTER_TYP');
+		$this->EnableAction('FILTER_SENDER');
+		$this->EnableAction('FILTER_TEXT');
+		$this->EnableAction('FILTER_SEITE');
+		$this->EnableAction('FILTER_MAXZEILEN');
+
 		// Visu Aktulisieren
 		$this->RegisterTimer('VisualisierungAktualisieren',0,'LOGANALYZER_AktualisierenVisualisierung($_IPS["TARGET"]);');
 	}
@@ -133,6 +149,16 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		}
 		
         $summary = basename($logDatei);
+
+		// Filter-Variablen mit aktuellem Status synchronisieren
+		$status = $this->leseStatus();
+		$aktLogDatei = $this->leseAktuelleLogDatei();
+		if ($this->GetValue('FILTER_LOGDATEI') === '') {
+			$this->SetValue('FILTER_LOGDATEI', $aktLogDatei);
+		}
+		if ($this->GetValue('FILTER_MAXZEILEN') === 0) {
+			$this->SetValue('FILTER_MAXZEILEN', (int)($status['maxZeilen'] ?? 50));
+		}
         if (is_file($logDatei)) {
             $summary .= ' · ' . $this->formatiereDateigroesse((int) filesize($logDatei));
         }
@@ -224,6 +250,69 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		try {
 			$status = $this->leseStatus();
 			switch ($Ident) {
+				case 'FILTER_LOGDATEI':
+					$datei = trim((string)$Value);
+					if (is_file($datei)) {
+						$this->SetValue('FILTER_LOGDATEI', $datei);
+						$this->WriteAttributeString('AktuelleLogDatei', $datei);
+						$status['seite'] = 0;
+						$status['trefferGesamt'] = -1;
+						$status['filterTypen'] = [];
+						$status['senderFilter'] = [];
+						$this->schreibeStatus($status);
+						$this->schreibeFilterMetadaten([
+							'verfuegbareFilterTypen' => [], 'verfuegbareSender' => [],
+							'gesamtZeilenCache' => -1, 'dateiGroesseCache' => 0,
+							'dateiMTimeCache' => 0, 'ladezeitMs' => 0,
+							'laedt' => false, 'signatur' => '',
+						]);
+						$this->leereSeitenCache();
+						$this->aktualisiereVisualisierung();
+					}
+					return;
+				case 'FILTER_TYP':
+					$typen = array_values(array_filter(array_map('trim', explode(',', (string)$Value))));
+					$this->SetValue('FILTER_TYP', (string)$Value);
+					$status['filterTypen'] = $typen;
+					$status['seite'] = 0;
+					$status['trefferGesamt'] = -1;
+					$this->schreibeStatus($status);
+					$this->leereSeitenCache();
+					$this->aktualisiereVisualisierung();
+					return;
+				case 'FILTER_SENDER':
+					$sender = array_values(array_filter(array_map('trim', explode(',', (string)$Value))));
+					$this->SetValue('FILTER_SENDER', (string)$Value);
+					$status['senderFilter'] = $sender;
+					$status['seite'] = 0;
+					$status['trefferGesamt'] = -1;
+					$this->schreibeStatus($status);
+					$this->leereSeitenCache();
+					$this->aktualisiereVisualisierung();
+					return;
+				case 'FILTER_TEXT':
+					$this->SetValue('FILTER_TEXT', (string)$Value);
+					$status['textFilter'] = trim((string)$Value);
+					$status['seite'] = 0;
+					$status['trefferGesamt'] = -1;
+					$this->schreibeStatus($status);
+					$this->leereSeitenCache();
+					$this->aktualisiereVisualisierung();
+					return;
+				case 'FILTER_SEITE':
+					$this->SetValue('FILTER_SEITE', (int)$Value);
+					$status['seite'] = max(0, (int)$Value);
+					$this->schreibeStatus($status);
+					$this->aktualisiereVisualisierung();
+					return;
+				case 'FILTER_MAXZEILEN':
+					$mz = $this->normalisiereMaxZeilen((int)$Value);
+					$this->SetValue('FILTER_MAXZEILEN', $mz);
+					$status['maxZeilen'] = $mz;
+					$status['seite'] = 0;
+					$this->schreibeStatus($status);
+					$this->aktualisiereVisualisierung();
+					return;
 				case 'Laden':
 				case 'Aktualisieren':
 					$status['trefferGesamt'] = -1;
