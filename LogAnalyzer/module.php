@@ -115,7 +115,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
     {
 		// nicht löschen
         parent::Destroy();
-		$this->RemoveHook('/hook/LogAnalyzerIPSView_' . $this->InstanceID);
     }
 
     /**
@@ -132,8 +131,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
     {
 		// nicht löschen
         parent::ApplyChanges();
-
-		$this->RegisterHook('/hook/LogAnalyzerIPSView_' . $this->InstanceID);
 
 		// Tile Visu nutzen (deaktiviert - IPSView HTML-Box)
         // $this->SetVisualizationType(1);
@@ -560,11 +557,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
      * Rückgabewert: void
      */
 
-	public function ProcessHookData()
-	{
-		$m = $this;
-		include __DIR__ . '/libs/hook_handler.php';
-	}
 
 	public function AktualisierenVisualisierung(): void
 	{
@@ -860,7 +852,7 @@ HTML;
 	}
 
 
-	public function aktualisiereVisualisierung(): void
+	private function aktualisiereVisualisierung(): void
 	{
 		try {
 			$start = microtime(true);
@@ -1755,7 +1747,7 @@ HTML;
      * Parameter: keine
      * Rückgabewert: void
      */
-	public function leereSeitenCache(): void
+	private function leereSeitenCache(): void
 	{
 		$this->schreibeSeitenCache([
 			'listenSignatur'    => '',
@@ -1778,7 +1770,7 @@ HTML;
      * Parameter: keine
      * Rückgabewert: array
      */
-	public function leseStatus(): array
+	private function leseStatus(): array
 	{
 		$json = $this->ReadAttributeString(self::ATTR_STATUS);
 		$daten = $this->dekodiereJsonArray($json);
@@ -1813,7 +1805,7 @@ HTML;
      * Parameter: array $status
      * Rückgabewert: void
      */
-	public function schreibeStatus(array $status): void
+	private function schreibeStatus(array $status): void
 	{
 		$this->WriteAttributeString(
 			self::ATTR_STATUS,
@@ -1951,7 +1943,7 @@ HTML;
      * Parameter: array $meta
      * Rückgabewert: void
      */
-	public function schreibeFilterMetadaten(array $meta): void
+	private function schreibeFilterMetadaten(array $meta): void
 	{
 		$this->WriteAttributeString(
 			self::ATTR_FILTERMETA,
@@ -2288,7 +2280,7 @@ HTML;
      * Parameter: int $wert
      * Rückgabewert: int
      */
-	public function normalisiereMaxZeilen(int $wert): int
+	private function normalisiereMaxZeilen(int $wert): int
 	{
 		$erlaubt = [20, 50, 100, 200, 500, 1000, 2000, 3000];
 		return in_array($wert, $erlaubt, true) ? $wert : 50;
