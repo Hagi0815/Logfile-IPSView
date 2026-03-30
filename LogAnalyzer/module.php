@@ -198,7 +198,12 @@ class LogAnalyzerIPSView extends IPSModuleStrict
         $actions = [
             [
                 'type'    => 'Button',
-                'caption' => 'HTML-Box jetzt aktualisieren',
+                'caption' => '1. TEST: Schreibt SetValue direkt',
+                'onClick' => 'LOGANALYZER_TestHtmlBox($id);'
+            ],
+            [
+                'type'    => 'Button',
+                'caption' => '2. HTML-Box aktualisieren',
                 'onClick' => 'LOGANALYZER_AktualisierenVisualisierung($id);'
             ],
         ];
@@ -477,6 +482,12 @@ class LogAnalyzerIPSView extends IPSModuleStrict
      * Parameter: keine
      * Rückgabewert: void
      */
+	public function TestHtmlBox(): void
+	{
+		$zeit = date('H:i:s');
+		$this->SetValue('HTMLBOX', "<html><body style='background:#111;color:#0f0;font-family:monospace;padding:20px'><h2>TEST OK – {$zeit}</h2><p>SetValue funktioniert!</p><p>InstanceID: {$this->InstanceID}</p></body></html>");
+	}
+
 	public function AktualisierenVisualisierung(): void
 	{
 		// Direkt aufrufen ohne Exception-Propagation
@@ -654,8 +665,8 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		}
 
 		// JSON-RPC URL
-		// Relativer Pfad – funktioniert da die HTML-Box über den IPS-Webserver ausgeliefert wird
-		$rpcUrl = '/api/';
+		// RPC URL wird im JS dynamisch aus window.location.hostname gebaut
+		$rpcUrl = '__DYNAMIC__';
 		$ipsUser = (string) $this->ReadPropertyString('IpsUsername');
 		$ipsPass = (string) $this->ReadPropertyString('IpsPassword');
 		$hasAuth    = ($ipsUser !== '') ? 'true' : 'false';
@@ -789,7 +800,7 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
 <script>
 const IPS_ID      = {$instanzId};
 const HTMLBOX_VAR = {$htmlboxVarId};
-const RPC_URL     = '{$rpcUrl}';
+const RPC_URL     = 'http://' + window.location.hostname + ':3777/api/';
 const HAS_AUTH    = {$hasAuth};
 const IPS_USER    = {$ipsUserJson};
 const IPS_PASS    = {$ipsPassJson};
