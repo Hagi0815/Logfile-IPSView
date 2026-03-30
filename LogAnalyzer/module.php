@@ -12,8 +12,7 @@
  * - Ladezeit Filter 0ms, wenn nicht notwendig zum Laden, bei Modi System
 */
 
-// strict_types deaktiviert wegen ProcessHookData Hook-Kompatibilität
-// declare(strict_types=1);
+declare(strict_types=1);
 require_once __DIR__ . '/libs/LogAnalyzerStandardTrait.php';
 require_once __DIR__ . '/libs/LogAnalyzerSystemTrait.php';
 
@@ -120,7 +119,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		// nicht löschen
         parent::ApplyChanges();
 
-		// WebHook registrieren
 		$this->RegisterHook('/hook/LogAnalyzerIPSView_' . $this->InstanceID);
 
 		// Tile Visu nutzen
@@ -498,72 +496,64 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 
 
 
+
+
 	public function ProcessHookData()
 	{
-		$aktion = isset($_GET['a']) ? trim($_GET['a']) : '';
-		$status = $this->leseStatus();
+		$a = isset($_GET['a']) ? (string)$_GET['a'] : '';
+		$v = isset($_GET['v']) ? (string)$_GET['v'] : '';
 
 		try {
-			if ($aktion === 'FilterAnwenden') {
+			$status = $this->leseStatus();
+
+			if ($a === 'FilterAnwenden') {
 				$ft = isset($_GET['ft']) ? array_values(array_filter((array)$_GET['ft'])) : [];
 				$sf = isset($_GET['sf']) ? array_values(array_filter((array)$_GET['sf'])) : [];
 				$status['filterTypen']    = $ft;
-				$status['objektIdFilter'] = trim((string)($_GET['oi'] ?? ''));
+				$status['objektIdFilter'] = isset($_GET['oi']) ? trim((string)$_GET['oi']) : '';
 				$status['senderFilter']   = $sf;
-				$status['textFilter']     = trim((string)($_GET['tf'] ?? ''));
+				$status['textFilter']     = isset($_GET['tf']) ? trim((string)$_GET['tf']) : '';
 				$status['seite']          = 0;
 				$status['trefferGesamt']  = -1;
 				$this->schreibeStatus($status);
 				$this->leereSeitenCache();
-			} elseif ($aktion === 'SeiteVor') {
-				$status['seite'] = max(0, (int)$status['seite'] + 1);
+			} elseif ($a === 'SeiteVor') {
+				$status['seite'] = (int)$status['seite'] + 1;
 				$this->schreibeStatus($status);
-			} elseif ($aktion === 'SeiteZurueck') {
+			} elseif ($a === 'SeiteZurueck') {
 				$status['seite'] = max(0, (int)$status['seite'] - 1);
 				$this->schreibeStatus($status);
-			} elseif ($aktion === 'SetzeMaxZeilen') {
-				$status['maxZeilen'] = $this->normalisiereMaxZeilen((int)($_GET['v'] ?? 50));
-				$status['seite'] = 0;
+			} elseif ($a === 'SetzeMaxZeilen') {
+				$status['maxZeilen'] = $this->normalisiereMaxZeilen((int)$v);
+				$status['seite']     = 0;
 				$this->schreibeStatus($status);
-			} elseif ($aktion === 'LogDateiAuswaehlen') {
-				$datei = trim((string)($_GET['v'] ?? ''));
-				if (is_file($datei)) {
-					$this->WriteAttributeString('AktuelleLogDatei', $datei);
-					$status['seite'] = 0;
+			} elseif ($a === 'LogDateiAuswaehlen') {
+				if (is_file($v)) {
+					$this->WriteAttributeString('AktuelleLogDatei', $v);
+					$status['seite']         = 0;
 					$status['trefferGesamt'] = -1;
 					$this->schreibeStatus($status);
 					$this->schreibeFilterMetadaten([
 						'verfuegbareFilterTypen' => [], 'verfuegbareSender' => [],
-						'gesamtZeilenCache' => -1, 'dateiGroesseCache' => 0,
-						'dateiMTimeCache' => 0, 'ladezeitMs' => 0,
-						'laedt' => false, 'signatur' => ''
+						'gesamtZeilenCache'     => -1,  'dateiGroesseCache' => 0,
+						'dateiMTimeCache'       => 0,   'ladezeitMs'        => 0,
+						'laedt' => false, 'signatur' => '',
 					]);
 					$this->leereSeitenCache();
 				}
-			} elseif ($aktion === 'SetzeBetriebsmodus') {
-				$modus = strtolower(trim((string)($_GET['v'] ?? 'standard')));
-				if (in_array($modus, ['standard', 'system'], true)) {
-					IPS_SetProperty($this->InstanceID, 'Betriebsmodus', $modus);
+			} elseif ($a === 'SetzeBetriebsmodus') {
+				$m = strtolower(trim($v));
+				if (in_array($m, ['standard', 'system'])) {
+					IPS_SetProperty($this->InstanceID, 'Betriebsmodus', $m);
 				}
 			}
+
+			$this->aktualisiereVisualisierung();
 		} catch (\Throwable $e) {
 			$this->SendDebug('Hook Fehler', $e->getMessage(), 0);
 		}
 
-		// Visualisierung aktualisieren und ausgeben - alle Exceptions abfangen
-		try {
-			$this->aktualisiereVisualisierung();
-		} catch (\Throwable $e) {
-			$this->SendDebug('Hook Visualisierung Fehler', $e->getMessage(), 0);
-		}
-
-		$html = '';
-		try {
-			$html = $this->GetValue('HTMLBOX');
-		} catch (\Throwable $e) {
-			$html = '<html><body style="background:#111;color:#f88;padding:20px;font-family:monospace">Hook Fehler: ' . htmlspecialchars($e->getMessage()) . '</body></html>';
-		}
-		echo $html;
+		echo $this->GetValue('HTMLBOX');
 	}
 
 	public function AktualisierenVisualisierung(): void
