@@ -201,7 +201,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			]
         ];
 
-        $hookPfad = '/hook/LogAnalyzerIPSView_' . $id;
+        $hookPfad = '/hook/LogAnalyzerIPSView_' . $this->InstanceID;
 
         $actions = [
             [
