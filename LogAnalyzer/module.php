@@ -420,7 +420,7 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 			.   '<div class="grp"><span class="lbl">Schrift</span>'
 			.   '<form method="GET" action="' . $h . '" style="display:contents">'
 			.   '<input type="hidden" name="a" value="SetzeSchriftgroesse">'
-			.   '<select name="v" onchange="this.form.submit()" style="width:70px">' . $schriftOpts . '</select></form></div>'
+			.   '<select name="v" onchange="this.form.submit()">' . $schriftOpts . '</select></form></div>'
 			.   '<span style="flex:1"></span>'
 			.   '<a class="btn"' . $disN . ' href="' . $h . '?a=SeiteZurueck">&#8249; Neuere</a>'
 			.   '<span class="mu" style="align-self:center">Seite&nbsp;' . $seiteAnz . '</span>'
