@@ -94,7 +94,7 @@ trait LogAnalyzerSystemTrait
 		$seite = max(0, (int) ($status['seite'] ?? 0));
 		$take = (($seite + 1) * $maxZeilen) + 1;
 		$head = $maxZeilen + 1;
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktuelleLogDatei();
 
 		$dateiGroesse = is_file($logDatei) ? (int) filesize($logDatei) : 0;
 		$dateiMTime = is_file($logDatei) ? (int) filemtime($logDatei) : 0;
@@ -282,7 +282,7 @@ trait LogAnalyzerSystemTrait
      */
 	private function ermittleWindowsMetadatenUndGesamtmenge(): array
 	{
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktuelleLogDatei();
 
 		$typen = [];
 		$sender = [];
@@ -345,7 +345,7 @@ trait LogAnalyzerSystemTrait
      */
 	private function zaehleGefilterteZeilenWindows(array $status): int
 	{
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktuelleLogDatei();
 		$anzahl = 0;
 
 		$handle = @fopen($logDatei, 'rb');
@@ -400,7 +400,7 @@ trait LogAnalyzerSystemTrait
      */
 	private function baueLinuxBefehl(array $status, int $take, int $head): string
 	{
-		$datei = escapeshellarg($this->ReadPropertyString('LogDatei'));
+		$datei = escapeshellarg($this->leseAktuelleLogDatei());
 		$filterTypen = $this->normalisiereFilterTypen($status['filterTypen'] ?? []);
 		$objektIds = $this->normalisiereObjektIdFilterListe((string) ($status['objektIdFilter'] ?? ''));
 		$senderFilter = $this->normalisiereSenderFilter($status['senderFilter'] ?? []);
@@ -467,7 +467,7 @@ trait LogAnalyzerSystemTrait
      */
     private function baueWindowsBefehl(array $status, int $take): string
     {
-        $datei = str_replace("'", "''", $this->ReadPropertyString('LogDatei'));
+        $datei = str_replace("'", "''", $this->leseAktuelleLogDatei());
         $filterTypen = $this->normalisiereFilterTypen($status['filterTypen'] ?? []);
         $objektIds = $this->normalisiereObjektIdFilterListe((string) ($status['objektIdFilter'] ?? ''));
         $senderFilter = $this->normalisiereSenderFilter($status['senderFilter'] ?? []);
@@ -565,7 +565,7 @@ trait LogAnalyzerSystemTrait
      */
 	private function baueLinuxZaehlerBefehl(array $status): string
 	{
-		$datei = escapeshellarg($this->ReadPropertyString('LogDatei'));
+		$datei = escapeshellarg($this->leseAktuelleLogDatei());
 		$filterTypen = $this->normalisiereFilterTypen($status['filterTypen'] ?? []);
 		$objektIds = $this->normalisiereObjektIdFilterListe((string) ($status['objektIdFilter'] ?? ''));
 		$senderFilter = $this->normalisiereSenderFilter($status['senderFilter'] ?? []);
@@ -726,7 +726,7 @@ trait LogAnalyzerSystemTrait
      */
     private function baueWindowsZaehlerBefehl(array $status): string
     {
-        $datei = str_replace("'", "''", $this->ReadPropertyString('LogDatei'));
+        $datei = str_replace("'", "''", $this->leseAktuelleLogDatei());
         $filterTypen = $this->normalisiereFilterTypen($status['filterTypen'] ?? []);
         $objektIds = $this->normalisiereObjektIdFilterListe((string) ($status['objektIdFilter'] ?? ''));
         $senderFilter = $this->normalisiereSenderFilter($status['senderFilter'] ?? []);
@@ -800,7 +800,7 @@ trait LogAnalyzerSystemTrait
      */
 	private function baueLinuxFilterMetadatenBefehl(): string
 	{
-		$datei = escapeshellarg($this->ReadPropertyString('LogDatei'));
+		$datei = escapeshellarg($this->leseAktuelleLogDatei());
 
 		$awkProgramm = '
 	{
@@ -844,7 +844,7 @@ trait LogAnalyzerSystemTrait
      */
     private function baueWindowsFilterMetadatenBefehl(): string
     {
-        $datei = str_replace("'", "''", $this->ReadPropertyString('LogDatei'));
+        $datei = str_replace("'", "''", $this->leseAktuelleLogDatei());
 
         $ps = [];
         $ps[] = 'Get-Content -Path ' . "'" . $datei . "'";

@@ -14,7 +14,7 @@ trait LogAnalyzerStandardTrait
      */
 	private function ladeLogZeilenStandard(array $status): array
 	{
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktuelleLogDatei();
 		$maxZeilen = $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50));
 		$seite = max(0, (int) ($status['seite'] ?? 0));
 
@@ -59,7 +59,7 @@ trait LogAnalyzerStandardTrait
 		$sichtbareZeilen = array_slice($zeilen, $offset, $maxZeilen);
 		$hatWeitere = ($offset + $maxZeilen) < $trefferGesamt;
 
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktuelleLogDatei();
 		$this->schreibeSeitenCache([
 			'listenSignatur'    => $this->ermittleListenCacheSignatur($status),
 			'zaehlSignatur'     => $this->ermittleZaehlsignatur($status),
@@ -103,7 +103,7 @@ trait LogAnalyzerStandardTrait
      */
 	private function zaehleGefilterteZeilenStandard(array $status): int
 	{
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktuelleLogDatei();
 		$anzahl = 0;
 
 		$handle = @fopen($logDatei, 'rb');
@@ -146,7 +146,7 @@ trait LogAnalyzerStandardTrait
      */
 	private function ermittleFilterMetadatenStandard(): array
 	{
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktuelleLogDatei();
 		$status = $this->leseStatus();
 
 		$typen = [];
