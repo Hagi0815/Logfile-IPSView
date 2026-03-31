@@ -226,6 +226,128 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		return $this->erstelleHtmlMitLogDatei(null);
 	}
 
+	public function ExportierePdf(string $scope): string
+	{
+		$zeilen = $this->ladeZeilenFuerExport($scope);
+		$status = $this->leseStatus();
+		$logDatei = $this->leseAktuelleLogDatei();
+		$ts = date('d.m.Y H:i:s');
+		$dateiname = htmlspecialchars(basename($logDatei));
+		$treffer = count($zeilen);
+		$filterInfo = $this->erstelleFilterBeschreibung($status);
+		$scopeLabel = $scope === 'alle' ? 'Alle Treffer' : 'Aktuelle Seite';
+
+		$rows = '';
+		foreach ($zeilen as $z) {
+			$zeit   = htmlspecialchars((string)($z['zeitstempel'] ?? ''));
+			$oid    = htmlspecialchars((string)($z['objektId'] ?? ''));
+			$typ    = htmlspecialchars((string)($z['typ'] ?? ''));
+			$sender = htmlspecialchars((string)($z['sender'] ?? ''));
+			$msg    = htmlspecialchars((string)($z['meldung'] ?? ''));
+			$farbe  = $this->ermittleTypFarbe($typ);
+			$rows .= "<tr><td>{$zeit}</td><td>{$oid}</td>"
+				. "<td style=\"color:{$farbe};font-weight:bold\">{$typ}</td>"
+				. "<td>{$sender}</td><td>{$msg}</td></tr>";
+		}
+
+		return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">'
+			. '<title>Log Export – ' . $dateiname . '</title>'
+			. '<style>'
+			. '*{box-sizing:border-box;margin:0;padding:0}'
+			. 'body{font-family:Arial,sans-serif;font-size:11px;color:#000;background:#fff;padding:12px}'
+			. 'h1{font-size:14px;margin-bottom:4px}'
+			. '.meta{font-size:10px;color:#555;margin-bottom:10px;line-height:1.6}'
+			. 'table{width:100%;border-collapse:collapse;font-size:10px}'
+			. 'th{background:#7a4400;color:#fff;padding:4px 6px;text-align:left;white-space:nowrap}'
+			. 'td{padding:3px 6px;border-bottom:1px solid #ddd;vertical-align:top;word-break:break-word}'
+			. 'tr:nth-child(even)td{background:#f7f7f7}'
+			. 'td:nth-child(1),td:nth-child(2){white-space:nowrap}'
+			. '@media print{body{padding:0}.no-print{display:none}}'
+			. '</style></head><body>'
+			. '<div class="no-print" style="margin-bottom:10px">'
+			. '<button onclick="window.print()" style="padding:6px 16px;background:#7a4400;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px">&#128196; Drucken / Als PDF speichern</button>'
+			. '&nbsp;<button onclick="window.close()" style="padding:6px 12px;background:#555;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px">Schließen</button>'
+			. '</div>'
+			. '<h1>Log Analyzer – Export</h1>'
+			. '<div class="meta">'
+			. '<b>Datei:</b> ' . $dateiname . '&nbsp;&nbsp;'
+			. '<b>Umfang:</b> ' . $scopeLabel . '&nbsp;&nbsp;'
+			. '<b>Zeilen:</b> ' . $treffer . '&nbsp;&nbsp;'
+			. '<b>Exportiert:</b> ' . $ts
+			. ($filterInfo ? '<br><b>Filter:</b> ' . htmlspecialchars($filterInfo) : '')
+			. '</div>'
+			. '<table><thead><tr>'
+			. '<th>Zeit</th><th>ObjektID</th><th>Typ</th><th>Sender</th><th>Meldung</th>'
+			. '</tr></thead><tbody>' . $rows . '</tbody></table>'
+			. '</body></html>';
+	}
+
+	public function ExportiereCsv(string $scope): string
+	{
+		$zeilen = $this->ladeZeilenFuerExport($scope);
+		$logDatei = $this->leseAktuelleLogDatei();
+		$dateiname = 'log-export-' . date('Y-m-d_His') . '.csv';
+
+		header('Content-Type: text/csv; charset=utf-8');
+		header('Content-Disposition: attachment; filename="' . $dateiname . '"');
+		header('Cache-Control: no-cache');
+
+		$out = "Zeit;ObjektID;Typ;Sender;Meldung\n";
+		foreach ($zeilen as $z) {
+			$out .= implode(';', [
+				'"' . str_replace('"', '""',(string)($z['zeitstempel'] ?? '')) . '"',
+				'"' . str_replace('"', '""',(string)($z['objektId'] ?? '')) . '"',
+				'"' . str_replace('"', '""',(string)($z['typ'] ?? '')) . '"',
+				'"' . str_replace('"', '""',(string)($z['sender'] ?? '')) . '"',
+				'"' . str_replace('"', '""',(string)($z['meldung'] ?? '')) . '"',
+			]) . "\n";
+		}
+		return $out;
+	}
+
+	private function ladeZeilenFuerExport(string $scope): array
+	{
+		$status = $this->leseStatus();
+		if ($scope === 'alle') {
+			// Alle gefilterten Zeilen laden (temporär maxZeilen hochsetzen)
+			$statusExport = $status;
+			$statusExport['seite'] = 0;
+			$statusExport['maxZeilen'] = 99999;
+			$modus = $this->ermittleAktivenModus();
+			$result = $this->ladeLogZeilen($statusExport);
+			return is_array($result['zeilen'] ?? null) ? $result['zeilen'] : [];
+		} else {
+			// Nur aktuelle Seite aus Cache
+			$cache = $this->leseSeitenCache();
+			return is_array($cache['zeilen'] ?? null) ? $cache['zeilen'] : [];
+		}
+	}
+
+	private function erstelleFilterBeschreibung(array $status): string
+	{
+		$teile = [];
+		$typen = $this->normalisiereFilterTypen($status['filterTypen'] ?? []);
+		if ($typen) $teile[] = 'Typ: ' . implode(', ', $typen);
+		$sender = $this->normalisiereSenderFilter($status['senderFilter'] ?? []);
+		if ($sender) $teile[] = 'Sender: ' . implode(', ', $sender);
+		$text = trim((string)($status['textFilter'] ?? ''));
+		if ($text) $teile[] = 'Text: ' . $text;
+		$oid = trim((string)($status['objektIdFilter'] ?? ''));
+		if ($oid) $teile[] = 'ObjektID: ' . $oid;
+		return implode(' | ', $teile);
+	}
+
+	private function ermittleTypFarbe(string $typ): string
+	{
+		return match(strtoupper($typ)) {
+			'ERROR'   => '#f66',
+			'WARNING' => '#fa0',
+			'DEBUG'   => '#88f',
+			'CUSTOM'  => '#6cf',
+			default   => '#aaa',
+		};
+	}
+
 	private function erstelleHtmlMitLogDatei(?string $logDateiOverride, ?int $schriftgroesseOverride = null): string
 	{
 		try {
@@ -426,6 +548,13 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 			.   '<span class="mu" style="align-self:center">Seite&nbsp;' . $seiteAnz . '</span>'
 			.   '<a class="btn"' . $disA . ' href="' . $h . '?a=SeiteVor">Ältere&nbsp;&#8250;</a>'
 			.   '<a class="btn" href="' . $h . '?a=Aktualisieren">&#8635;</a>'
+			.   '<span style="width:1px;background:#3a3a3a;align-self:stretch;margin:0 4px"></span>'
+			.   '<div class="grp"><span class="lbl">Export</span><div style="display:flex;gap:4px">'
+			.   '<a class="btn" title="PDF aktuelle Seite" href="' . $h . '?a=ExportPdf&amp;scope=seite" target="_blank">&#128196; PDF</a>'
+			.   '<a class="btn" title="PDF alle Treffer" href="' . $h . '?a=ExportPdf&amp;scope=alle" target="_blank">&#128196; PDF Alle</a>'
+			.   '<a class="btn" title="CSV aktuelle Seite" href="' . $h . '?a=ExportCsv&amp;scope=seite">&#128190; CSV</a>'
+			.   '<a class="btn" title="CSV alle Treffer" href="' . $h . '?a=ExportCsv&amp;scope=alle">&#128190; CSV Alle</a>'
+			.   '</div></div>'
 			. '</div>'
 			. '<form method="GET" action="' . $h . '"><input type="hidden" name="a" value="FilterAnwenden">'
 			. '<div class="bar2">'
