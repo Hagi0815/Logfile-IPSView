@@ -174,7 +174,8 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 	 */
 	public function VerarbeiteHookAktion(string $aktion, string $wert): string
 	{
-		$logDateiOverride = null; // wird bei LogDateiAuswaehlen gesetzt
+		$logDateiOverride = null;
+		$schriftgroesseOverride = null;
 		try {
 			if ($aktion === 'LogDateiAuswaehlen') {
 				$datei = trim($wert);
@@ -207,6 +208,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				}
 			} elseif ($aktion === 'SetzeSchriftgroesse') {
 				$groesse = max(8, min(20, (int) $wert));
+				$schriftgroesseOverride = $groesse; // Cache umgehen
 				$status = $this->leseStatus();
 				$status['schriftgroesse'] = $groesse;
 				$this->schreibeStatus($status);
@@ -216,7 +218,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		} catch (\Throwable $e) {
 			$this->SendDebug('VerarbeiteHookAktion', 'Fehler: ' . $e->getMessage(), 0);
 		}
-		return $this->erstelleHtmlMitLogDatei($logDateiOverride);
+		return $this->erstelleHtmlMitLogDatei($logDateiOverride, $schriftgroesseOverride);
 	}
 
 	public function ErstelleHtmlDirekt(): string
@@ -224,11 +226,14 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		return $this->erstelleHtmlMitLogDatei(null);
 	}
 
-	private function erstelleHtmlMitLogDatei(?string $logDateiOverride): string
+	private function erstelleHtmlMitLogDatei(?string $logDateiOverride, ?int $schriftgroesseOverride = null): string
 	{
 		try {
 			$daten = $this->erstelleVisualisierungsDaten($logDateiOverride);
 			$daten['status'] = $this->leseStatus();
+			if ($schriftgroesseOverride !== null) {
+				$daten['status']['schriftgroesse'] = $schriftgroesseOverride;
+			}
 			return $this->erstelleHtmlFuerIPSView($daten);
 		} catch (\Throwable $e) {
 			$msg = htmlspecialchars($e->getMessage());
@@ -662,6 +667,7 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 						'maxZeilen'                => $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50)),
 						'theme'                    => $this->normalisiereTheme((string) ($status['theme'] ?? 'dark')),
 						'kompakt'                  => $this->normalisiereKompakt($status['kompakt'] ?? false),
+						'schriftgroesse'           => max(8, min(20, (int) ($status['schriftgroesse'] ?? 12))),
 						'filterTypen'              => [],
 						'objektIdFilter'           => '',
 						'senderFilter'             => [],
