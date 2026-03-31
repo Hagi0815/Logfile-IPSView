@@ -43,6 +43,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		parent::Create();
 
 		$this->RegisterAttributeString('AktuelleLogDatei', '');
+		$this->RegisterAttributeString('FilterPresets', '[]');
 		$this->RegisterPropertyString('LogDatei', IPS_GetLogDir() . 'logfile.log');		// nur zu Initialisierung, wird später überschrieben
 		$this->RegisterPropertyInteger('MaxZeilen', 50);
 		$this->RegisterPropertyBoolean('VerwendeSift', false);
@@ -220,6 +221,31 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				$status = $this->leseStatus();
 				$status['seite'] = 0;
 				$this->schreibeStatus($status);
+			} elseif ($aktion === 'LetzteSeite') {
+				$status = $this->leseStatus();
+				$treffer = (int)($status['trefferGesamt'] ?? -1);
+				$mz = $this->normalisiereMaxZeilen((int)($status['maxZeilen'] ?? 50));
+				$status['seite'] = ($treffer > 0 && $mz > 0) ? max(0, (int)ceil($treffer/$mz)-1) : 0;
+				$this->schreibeStatus($status);
+			} elseif ($aktion === 'SprungSeite') {
+				$status = $this->leseStatus();
+				$ziel = max(0, (int)$wert - 1);
+				$treffer = (int)($status['trefferGesamt'] ?? -1);
+				$mz = $this->normalisiereMaxZeilen((int)($status['maxZeilen'] ?? 50));
+				if ($treffer > 0 && $mz > 0) $ziel = min($ziel, (int)ceil($treffer/$mz)-1);
+				$status['seite'] = $ziel;
+				$this->schreibeStatus($status);
+			} elseif ($aktion === 'PresetLaden') {
+				$this->PresetLaden($wert);
+			} elseif ($aktion === 'Schnellfilter') {
+				$sf = json_decode($wert, true) ?? [];
+				$status = $this->leseStatus();
+				if (isset($sf['ft'])) $status['filterTypen'] = [$sf['ft']];
+				if (isset($sf['sf'])) $status['senderFilter'] = [$sf['sf']];
+				$status['seite'] = 0;
+				$status['trefferGesamt'] = -1;
+				$this->schreibeStatus($status);
+				$this->leereSeitenCache();
 			} elseif ($aktion === 'SetzeKompakt') {
 				$k = ($wert === '1');
 				$status = $this->leseStatus();
@@ -242,6 +268,72 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 	public function ErstelleHtmlDirekt(): string
 	{
 		return $this->erstelleHtmlMitLogDatei(null);
+	}
+
+	public function PresetSpeichern(string $name): void
+	{
+		if (trim($name) === '') return;
+		$status = $this->leseStatus();
+		$preset = [
+			'name'           => trim($name),
+			'filterTypen'    => $status['filterTypen'] ?? [],
+			'senderFilter'   => $status['senderFilter'] ?? [],
+			'textFilter'     => $status['textFilter'] ?? '',
+			'objektIdFilter' => $status['objektIdFilter'] ?? '',
+			'zeitVon'        => $status['zeitVon'] ?? '',
+			'zeitBis'        => $status['zeitBis'] ?? '',
+		];
+		$presets = json_decode($this->ReadAttributeString('FilterPresets'), true) ?? [];
+		// Gleichnamige überschreiben
+		$presets = array_values(array_filter($presets, fn($p) => ($p['name'] ?? '') !== $preset['name']));
+		$presets[] = $preset;
+		// Max 20 Presets
+		if (count($presets) > 20) array_shift($presets);
+		$this->WriteAttributeString('FilterPresets', json_encode(array_values($presets), JSON_UNESCAPED_UNICODE));
+	}
+
+	public function PresetLaden(string $name): void
+	{
+		$presets = json_decode($this->ReadAttributeString('FilterPresets'), true) ?? [];
+		foreach ($presets as $p) {
+			if (($p['name'] ?? '') === $name) {
+				$status = $this->leseStatus();
+				$status['filterTypen']    = $p['filterTypen'] ?? [];
+				$status['senderFilter']   = $p['senderFilter'] ?? [];
+				$status['textFilter']     = $p['textFilter'] ?? '';
+				$status['objektIdFilter'] = $p['objektIdFilter'] ?? '';
+				$status['zeitVon']        = $p['zeitVon'] ?? '';
+				$status['zeitBis']        = $p['zeitBis'] ?? '';
+				$status['seite']          = 0;
+				$status['trefferGesamt']  = -1;
+				$this->schreibeStatus($status);
+				$this->leereSeitenCache();
+				return;
+			}
+		}
+	}
+
+	public function PresetLoeschen(string $name): void
+	{
+		$presets = json_decode($this->ReadAttributeString('FilterPresets'), true) ?? [];
+		$presets = array_values(array_filter($presets, fn($p) => ($p['name'] ?? '') !== $name));
+		$this->WriteAttributeString('FilterPresets', json_encode($presets, JSON_UNESCAPED_UNICODE));
+	}
+
+	public function ObjektIdAufloesen(string $oid): string
+	{
+		$id = (int) $oid;
+		if ($id <= 0 || !IPS_ObjectExists($id)) {
+			return json_encode(['name' => '', 'typ' => ''], JSON_UNESCAPED_UNICODE);
+		}
+		try {
+			$obj = IPS_GetObject($id);
+			$typen = [0=>'Kategorie',1=>'Instanz',2=>'Variable',3=>'Skript',4=>'Ereignis',5=>'Medien',6=>'Link'];
+			$typ = $typen[$obj['ObjectType'] ?? -1] ?? 'Objekt';
+			return json_encode(['name' => $obj['ObjectName'] ?? '', 'typ' => $typ], JSON_UNESCAPED_UNICODE);
+		} catch (\Throwable $e) {
+			return json_encode(['name' => '', 'typ' => ''], JSON_UNESCAPED_UNICODE);
+		}
 	}
 
 	public function ExportierePdf(string $scope): string
@@ -369,6 +461,47 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		};
 	}
 
+	private function erstellePresetUi(array $daten, string $h): string
+	{
+		$presets = is_array($daten['filterPresets'] ?? null) ? $daten['filterPresets'] : [];
+		$opts = '<option value="">-- Preset laden --</option>';
+		foreach ($presets as $p) {
+			$pn = htmlspecialchars((string)($p['name'] ?? ''));
+			$opts .= '<option value="' . $pn . '">' . $pn . '</option>';
+		}
+		return '<div style="background:#1c1c1c;border-bottom:1px solid #2a2a2a;padding:4px 10px;display:flex;gap:8px;align-items:center">'
+			. '<span style="font-size:calc(var(--fs,12px) - 1px);color:#666;text-transform:uppercase;letter-spacing:.4px">Filter-Presets</span>'
+			. '<select id="preset-sel" style="background:#2a2a2a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:3px 6px;font-size:var(--fs,12px)" onchange="presetLaden(this.value)">' . $opts . '</select>'
+			. '<a href="#" class="btn" style="padding:3px 10px" onclick="presetSpeichern();return false" title="Aktuellen Filter speichern">&#9998; Speichern</a>'
+			. '<a href="#" class="btn btn-r" id="preset-del-btn" style="padding:3px 10px;display:none" onclick="presetLoeschen();return false">&#10005; Löschen</a>'
+			. '</div>';
+	}
+
+	private function ermittleTagesZusammenfassung(string $logDatei): array
+	{
+		$heute = date('Y-m-d');
+		$zaehler = ['ERROR' => 0, 'WARNING' => 0, 'DEBUG' => 0, 'MESSAGE' => 0, 'CUSTOM' => 0];
+		$handle = @fopen($logDatei, 'rb');
+		if ($handle === false) return $zaehler;
+		try {
+			while (($zeile = fgets($handle)) !== false) {
+				$parsed = $this->parseLogZeile($zeile);
+				if ($parsed === null) continue;
+				$zeit = (string)($parsed['zeitstempel'] ?? '');
+				if (strncmp($zeit, $heute, 10) !== 0) continue; // nur heute
+				$typ = strtoupper((string)($parsed['typ'] ?? ''));
+				if (isset($zaehler[$typ])) {
+					$zaehler[$typ]++;
+				} else {
+					$zaehler['CUSTOM']++;
+				}
+			}
+		} finally {
+			fclose($handle);
+		}
+		return $zaehler;
+	}
+
 	private function erstelleHtmlMitLogDatei(?string $logDateiOverride, ?int $schriftgroesseOverride = null): string
 	{
 		try {
@@ -437,6 +570,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 
 		$metaTreffer = $treffer >= 0 ? $von . '&ndash;' . $bis . '&nbsp;/&nbsp;' . $treffer : '...';
 		$seiteAnz    = $seite + 1;
+		$letzteSeite = ($treffer > 0 && $maxZeilen > 0) ? max(0, (int)ceil($treffer / $maxZeilen) - 1) : -1;
 		$schriftgroesse = max(8, min(20, (int)($status['schriftgroesse'] ?? 12)));
 		$kompakt        = (bool)($status['kompakt'] ?? false);
 		$autoRefreshSek = max(0, (int)($status['autoRefreshSek'] ?? 0));
@@ -529,12 +663,22 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				$msgHtml = strlen($msgRaw) > 80
 					? '<span class="cm-kurz" onclick="this.classList.toggle(\'cm-kurz\');this.classList.toggle(\'cm-voll\')" title="Klicken zum Aufklappen">' . $msg . '</span>'
 					: $msg;
+				$typRaw  = htmlspecialchars((string)($z['typ'] ?? ''));
+				$sndRaw  = htmlspecialchars((string)($z['sender'] ?? ''));
+				$oidRaw  = htmlspecialchars((string)($z['objektId'] ?? ''));
+				// Schnellfilter: Klick auf Typ/Sender filtert sofort
+				$typLink = '<a href="' . $h . '?a=Schnellfilter&ft=' . urlencode($typRaw) . '" style="color:' . $fc . ';text-decoration:none" title="Nach diesem Typ filtern">' . $typ . '</a>';
+				$sndLink = '<a href="' . $h . '?a=Schnellfilter&sf=' . urlencode($sndRaw) . '" style="color:inherit;text-decoration:none" title="Nach diesem Sender filtern">' . $snd . '</a>';
+				// ObjektID mit Hover-Tooltip
+				$oidCell = ($oidRaw !== '' && $oidRaw !== '00000' && (int)$oidRaw > 0)
+					? '<span class="oid-hover" data-oid="' . $oidRaw . '" style="cursor:help">' . $oidRaw . '</span>'
+					: $oidRaw;
 				$tbody .= '<tr>'
 					. '<td class="cz" style="color:#444;min-width:30px;text-align:right">' . $znr++ . '</td>'
 					. '<td class="cz">' . $zeit . '</td>'
-					. '<td class="co">' . $oid  . '</td>'
-					. '<td class="ct" style="color:' . $fc . '">' . $typ . '</td>'
-					. '<td class="cs">' . $snd  . '</td>'
+					. '<td class="co">' . $oidCell . '</td>'
+					. '<td class="ct">' . $typLink . '</td>'
+					. '<td class="cs">' . $sndLink . '</td>'
 					. '<td class="cm">' . $msgHtml . '</td>'
 					. '</tr>';
 			}
@@ -571,6 +715,8 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 .cm{padding:3px 8px;word-break:break-word;font-size:var(--fs,12px)}
 .empty{padding:14px;color:#555}
 mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
+.oid-hover{position:relative}
+.oid-tip{position:absolute;left:0;top:100%;z-index:99;background:#333;color:#ddd;border:1px solid #555;border-radius:4px;padding:4px 8px;font-size:11px;white-space:nowrap;pointer-events:none;margin-top:2px}
 .kompakt .cz,.kompakt .co,.kompakt .ct,.kompakt .cs,.kompakt .cm{padding:1px 6px}
 .kompakt thead th{padding:3px 6px}
 .cm-kurz{max-width:600px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
@@ -603,10 +749,18 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			.   '<input type="hidden" name="a" value="SetzeSchriftgroesse">'
 			.   '<select name="v" onchange="this.form.submit()">' . $schriftOpts . '</select></form></div>'
 			.   '<span style="flex:1"></span>'
-			.   '<a class="btn"' . ($seite <= 0 ? ' disabled' : '') . ' href="' . $h . '?a=ErsteSeite" title="Zur neuesten Seite">&#8676;</a>'
+			.   '<a class="btn"' . ($seite <= 0 ? ' disabled' : '') . ' href="' . $h . '?a=ErsteSeite" title="Zur neuesten Seite (Pos1)">&#8676;</a>'
 			.   '<a class="btn"' . $disN . ' href="' . $h . '?a=SeiteZurueck" title="Neuere (←)">&#8249; Neuere</a>'
-			.   '<span class="mu" style="align-self:center">Seite&nbsp;' . $seiteAnz . '</span>'
+			.   '<form method="GET" action="' . $h . '" style="display:contents">'
+			.   '<input type="hidden" name="a" value="SprungSeite">'
+			.   '<input type="number" name="v" value="' . $seiteAnz . '" min="1"'
+			.   ($treffer > 0 ? ' max="' . ($letzteSeite+1) . '"' : '')
+			.   ' style="width:52px;text-align:center;background:#2a2a2a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:4px 6px;font-size:var(--fs,12px)"'
+			.   ' title="Seite eingeben + Enter" onchange="this.form.submit()"></form>'
+			.   '<span class="mu" style="align-self:center">'
+			.   ($treffer > 0 ? '/ ' . ($letzteSeite+1) : '') . '</span>'
 			.   '<a class="btn"' . $disA . ' href="' . $h . '?a=SeiteVor" title="Ältere (→)">Ältere&nbsp;&#8250;</a>'
+			.   ($letzteSeite > 0 ? '<a class="btn"' . ($seite >= $letzteSeite ? ' disabled' : '') . ' href="' . $h . '?a=LetzteSeite" title="Zur ältesten Seite (Ende)">&#8677;</a>' : '')
 			.   '<a class="btn" href="' . $h . '?a=Aktualisieren" title="Aktualisieren (R)">&#8635;</a>'
 			.   '<div class="grp"><span class="lbl">Ansicht</span><div style="display:flex;gap:4px">'
 			.   '<a class="btn' . ($kompakt ? ' btn-p' : '') . '" href="' . $h . '?a=SetzeKompakt&v=' . ($kompakt?'0':'1') . '">&#8801; Kompakt</a>'
@@ -648,11 +802,20 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="5" checked onchange="toggleSpalte(this)"> Meldung</label>'
 			.   '</div></div>'
 			. '</div></form>'
-			. '<div class="meta">'
-			.   '<span>&#128196; <b style="color:#ccc">' . $logDateiBn . '</b>&nbsp;' . $dateiGroesse . '</span>'
-			.   '<span>Treffer:&nbsp;' . $metaTreffer . '</span>'
-			.   '<span>Tab:&nbsp;' . $ladezeitTab . '&nbsp;ms</span>'
-			.   '<span style="margin-left:auto">Stand:&nbsp;' . $ts . '</span>'
+			. $this->erstellePresetUi($daten, $h)
+			.   '<div class="meta">'
+			. '<span>&#128196; <b style="color:#ccc">' . $logDateiBn . '</b>&nbsp;' . $dateiGroesse . '</span>'
+			. (function() use ($daten) {
+				$tz = is_array($daten['tagesZusammenfassung'] ?? null) ? $daten['tagesZusammenfassung'] : [];
+				$r = '';
+				if (($tz['ERROR']??0)>0)   $r .= '<span style="color:#f66;font-weight:bold" title="Heute">&#9888; '.$tz['ERROR'].' Error'.($tz['ERROR']>1?'s':'').'</span> ';
+				if (($tz['WARNING']??0)>0) $r .= '<span style="color:#fa0" title="Heute">&#9651; '.$tz['WARNING'].' Warning'.($tz['WARNING']>1?'s':'').'</span> ';
+				if (($tz['MESSAGE']??0)>0) $r .= '<span style="color:#888" title="Heute">&#8227; '.$tz['MESSAGE'].' Message'.($tz['MESSAGE']>1?'s':'').'</span> ';
+				return $r ? '<span style="margin-left:8px;padding-left:8px;border-left:1px solid #333">'.trim($r).'</span>' : '';
+			})()
+			. '<span>Treffer:&nbsp;' . $metaTreffer . '</span>'
+			. '<span>Tab:&nbsp;' . $ladezeitTab . '&nbsp;ms</span>'
+			. '<span style="margin-left:auto">Stand:&nbsp;' . $ts . '</span>'
 			. '</div>'
 			. '<div class="meta">' . $fb . '</div>'
 			. '<div class="tbl-wrap"><table' . $tbodyKl . '>'
@@ -680,11 +843,48 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			.   'if(show)h=h.filter(function(x){return x!==c;});'
 			.   'localStorage.setItem("la_hidden_v2",JSON.stringify(h));'
 			. '};'
+			. '// Preset-Funktionen'
+			. 'function presetLaden(name){'
+			.   'if(!name)return;'
+			.   'document.getElementById("preset-del-btn").style.display="";'
+			.   'location.href="' . $h . '?a=PresetLaden&v="+encodeURIComponent(name);'
+			. '}'
+			. 'function presetSpeichern(){'
+			.   'var name=prompt("Name für diesen Filter-Preset:");'
+			.   'if(!name||!name.trim())return;'
+			.   'location.href="' . $h . '?a=PresetSpeichern&v="+encodeURIComponent(name.trim());'
+			. '}'
+			. 'function presetLoeschen(){'
+			.   'var sel=document.getElementById("preset-sel");'
+			.   'if(!sel.value)return;'
+			.   'if(!confirm("Preset \\"" + sel.value + "\\" löschen?"))return;'
+			.   'location.href="' . $h . '?a=PresetLoeschen&v="+encodeURIComponent(sel.value);'
+			. '}'
+			. '// ObjektID Hover-Tooltip'
+			. 'var oidCache={};'
+			. 'document.addEventListener("mouseover",function(e){'
+			.   'var el=e.target.closest(".oid-hover");'
+			.   'if(!el||el.querySelector(".oid-tip"))return;'
+			.   'var oid=el.dataset.oid;'
+			.   'if(oidCache[oid]){var t=document.createElement("span");t.className="oid-tip";t.textContent=oidCache[oid];el.appendChild(t);return;}'
+			.   'fetch("' . $h . '?a=ObjektIdAufloesen&oid="+oid).then(function(r){return r.json();}).then(function(d){'
+			.     'var txt=(d.name?d.name+" ":"")+"["+d.typ+"]";'
+			.     'oidCache[oid]=txt||"#"+oid;'
+			.     'var t=document.createElement("span");t.className="oid-tip";t.textContent=oidCache[oid];el.appendChild(t);'
+			.   '}).catch(function(){oidCache[oid]="#"+oid;});'
+			. '});'
+			. 'document.addEventListener("mouseout",function(e){'
+			.   'var el=e.target.closest(".oid-hover");'
+			.   'if(!el)return;'
+			.   'var t=el.querySelector(".oid-tip");if(t)t.remove();'
+			. '});'
 			. 'document.addEventListener("keydown",function(e){'
 			.   'if(e.target.tagName==="INPUT"||e.target.tagName==="SELECT"||e.target.tagName==="TEXTAREA")return;'
 			.   'if(e.key==="r"||e.key==="R"){location.href="' . $h . '?a=Aktualisieren";}'
 			.   'if(e.key==="ArrowLeft"||e.key==="n"||e.key==="N"){var l=document.querySelector("a[href*=SeiteZurueck]:not([disabled])");if(l)location.href=l.href;}'
 			.   'if(e.key==="ArrowRight"||e.key==="a"||e.key==="A"){var l=document.querySelector("a[href*=SeiteVor]:not([disabled])");if(l)location.href=l.href;}'
+			.   'if(e.key==="Home"){location.href="' . $h . '?a=ErsteSeite";}'
+			.   'if(e.key==="End"){location.href="' . $h . '?a=LetzteSeite";}'
 			. '});'
 			. ($autoRefreshSek > 0 ? 'setTimeout(function(){location.reload();},' . ($autoRefreshSek * 1000) . ');' : '')
 			. '})();'
@@ -831,6 +1031,29 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 					$status['seite'] = 0;
 					$this->schreibeStatus($status);
 					$this->setzeTabellenLadezustand(true, 'Neueste Seite wird geladen …', 'RequestAction/ErsteSeite');
+					$this->aktualisiereVisualisierung();
+					return;
+
+				case 'LetzteSeite':
+					$treffer = (int)($status['trefferGesamt'] ?? -1);
+					$mz = $this->normalisiereMaxZeilen((int)($status['maxZeilen'] ?? 50));
+					$letzte = ($treffer > 0 && $mz > 0) ? max(0, (int)ceil($treffer / $mz) - 1) : 0;
+					$status['seite'] = $letzte;
+					$this->schreibeStatus($status);
+					$this->setzeTabellenLadezustand(true, 'Älteste Seite wird geladen …', 'RequestAction/LetzteSeite');
+					$this->aktualisiereVisualisierung();
+					return;
+
+				case 'SprungSeite':
+					$zielSeite = max(0, (int)$Value - 1);
+					$treffer = (int)($status['trefferGesamt'] ?? -1);
+					$mz = $this->normalisiereMaxZeilen((int)($status['maxZeilen'] ?? 50));
+					if ($treffer > 0 && $mz > 0) {
+						$zielSeite = min($zielSeite, (int)ceil($treffer / $mz) - 1);
+					}
+					$status['seite'] = $zielSeite;
+					$this->schreibeStatus($status);
+					$this->setzeTabellenLadezustand(true, 'Seite wird geladen …', 'RequestAction/SprungSeite');
 					$this->aktualisiereVisualisierung();
 					return;
 
@@ -1228,6 +1451,8 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 		}
 
 		$ergebnis['dateiGroesse'] = $this->formatiereDateigroesse((int) filesize($logDatei));
+		$ergebnis['tagesZusammenfassung'] = $this->ermittleTagesZusammenfassung($logDatei);
+		$ergebnis['filterPresets'] = json_decode($this->ReadAttributeString('FilterPresets'), true) ?? [];
 
 		$start = microtime(true);
 		$leseErgebnis = $this->ladeLogZeilen($status);

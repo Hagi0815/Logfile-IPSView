@@ -7,6 +7,34 @@ if (!$instId || !IPS_InstanceExists($instId)) { echo "Instanz nicht gefunden."; 
 $a = isset($_GET['a']) ? (string)$_GET['a'] : '';
 $v = isset($_GET['v']) ? (string)$_GET['v'] : '';
 
+// Preset-Aktionen
+if ($a === 'PresetSpeichern') {
+    LOGANALYZER_PresetSpeichern($instId, $v);
+    header('Content-Type: text/html; charset=utf-8');
+    echo LOGANALYZER_VerarbeiteHookAktion($instId, '', '');
+    return;
+}
+if ($a === 'PresetLaden') {
+    LOGANALYZER_PresetLaden($instId, $v);
+    header('Content-Type: text/html; charset=utf-8');
+    echo LOGANALYZER_VerarbeiteHookAktion($instId, '', '');
+    return;
+}
+if ($a === 'PresetLoeschen') {
+    LOGANALYZER_PresetLoeschen($instId, $v);
+    header('Content-Type: text/html; charset=utf-8');
+    echo LOGANALYZER_VerarbeiteHookAktion($instId, '', '');
+    return;
+}
+
+// ObjektID auflösen (JSON-API)
+if ($a === 'ObjektIdAufloesen') {
+    header('Content-Type: application/json; charset=utf-8');
+    $oid = isset($_GET['oid']) ? (string)$_GET['oid'] : '0';
+    echo LOGANALYZER_ObjektIdAufloesen($instId, $oid);
+    return;
+}
+
 // Export-Aktionen direkt ausgeben (eigene Header)
 if ($a === 'ExportPdf') {
     $scope = isset($_GET['scope']) ? (string)$_GET['scope'] : 'seite';
@@ -38,6 +66,13 @@ switch ($a) {
         break;
     case 'SetzeMaxZeilen':
         $v = (string)(int)$v;
+        break;
+    case 'Schnellfilter':
+        // ft=Typ oder sf=Sender als GET-Parameter
+        $sf = [];
+        if (isset($_GET['ft']) && $_GET['ft'] !== '') $sf['ft'] = (string)$_GET['ft'];
+        if (isset($_GET['sf']) && $_GET['sf'] !== '') $sf['sf'] = (string)$_GET['sf'];
+        $v = json_encode($sf, JSON_UNESCAPED_UNICODE);
         break;
 }
 
