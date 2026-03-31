@@ -171,14 +171,13 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 	 * wechseln) sofort das aktualisierte HTML gerendert wird – ohne das
 	 * Timing-Problem von IPS_RequestAction (asynchron).
 	 */
-	public function VerarbeiteHookAktion(string $aktion, string $wert, array $extra = []): string
+	public function VerarbeiteHookAktion(string $aktion, string $wert): string
 	{
 		try {
 			if ($aktion !== '') {
-				$this->RequestAction($aktion, $wert !== '' ? $wert : (isset($extra['raw']) ? $extra['raw'] : ''));
+				$this->RequestAction($aktion, $wert);
 			}
 		} catch (\Throwable $e) {
-			// Aktion fehlgeschlagen, trotzdem HTML rendern
 			$this->SendDebug('VerarbeiteHookAktion', 'Fehler: ' . $e->getMessage(), 0);
 		}
 		return $this->ErstelleHtmlDirekt();
