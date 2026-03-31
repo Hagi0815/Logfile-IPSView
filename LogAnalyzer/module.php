@@ -144,6 +144,13 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			return;
 		}
         $this->SetSummary($summary);
+
+		// Hook-Script anlegen/aktualisieren
+		$this->erstelleOderAktualisierHookScript();
+
+		// iframe in HTMLBOX setzen
+		$hookUrl = '/hook/LogAnalyzerIPSView_' . $this->InstanceID;
+		$this->SetValue('HTMLBOX', "<iframe src='{$hookUrl}' style='width:100%;height:800px;border:none;background:#1a1a1a'></iframe>");
     }
 
     /**
