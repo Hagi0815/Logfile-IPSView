@@ -173,14 +173,11 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 	 */
 	public function VerarbeiteHookAktion(string $aktion, string $wert): string
 	{
+		$logDateiOverride = null; // wird bei LogDateiAuswaehlen gesetzt
 		try {
 			if ($aktion === 'LogDateiAuswaehlen') {
-				// Synchron direkt schreiben, kein RequestAction (wäre async)
 				$datei = trim($wert);
-				// Validierung: Datei muss im IPS-Log-Verzeichnis liegen und existieren
 				$logDir = rtrim(IPS_GetLogDir(), DIRECTORY_SEPARATOR);
-				// Validierung: Datei muss existieren und im Log-Verzeichnis liegen
-				// Achtung: realpath() + strtolower() für Windows-Kompatibilität (case-insensitiv)
 				$dateiReal = realpath($datei);
 				$logDirReal = realpath($logDir);
 				$gueltig = $dateiReal !== false
@@ -191,6 +188,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				$this->SendDebug('LogDateiAuswaehlen', "wert={$wert} dateiReal={$dateiReal} logDirReal={$logDirReal} gueltig=" . ($gueltig?'ja':'nein'), 0);
 				if ($gueltig) {
 					$this->WriteAttributeString('AktuelleLogDatei', $dateiReal);
+					$logDateiOverride = $dateiReal; // direkt weitergeben, IPS-Attribut-Cache umgehen
 					$status = $this->leseStatus();
 					$status['seite'] = 0;
 					$status['filterTypen'] = [];
@@ -212,13 +210,18 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		} catch (\Throwable $e) {
 			$this->SendDebug('VerarbeiteHookAktion', 'Fehler: ' . $e->getMessage(), 0);
 		}
-		return $this->ErstelleHtmlDirekt();
+		return $this->erstelleHtmlMitLogDatei($logDateiOverride);
 	}
 
 	public function ErstelleHtmlDirekt(): string
 	{
+		return $this->erstelleHtmlMitLogDatei(null);
+	}
+
+	private function erstelleHtmlMitLogDatei(?string $logDateiOverride): string
+	{
 		try {
-			$daten           = $this->erstelleVisualisierungsDaten();
+			$daten = $this->erstelleVisualisierungsDaten($logDateiOverride);
 			$daten['status'] = $this->leseStatus();
 			return $this->erstelleHtmlFuerIPSView($daten);
 		} catch (\Throwable $e) {
@@ -876,13 +879,13 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
      * Parameter: keine
      * Rückgabewert: array
      */
-	private function erstelleVisualisierungsDaten(): array
+	private function erstelleVisualisierungsDaten(?string $logDateiOverride = null): array
 	{
 		$status = $this->leseStatus();
 		$filterMetadaten = $this->leseFilterMetadatenFuerAnzeige();
 		// Synchron laden wenn Cache leer
 		if (empty($filterMetadaten['verfuegbareFilterTypen']) && empty($filterMetadaten['verfuegbareSender'])) {
-			$ldf = $this->leseAktuelleLogDatei();
+			$ldf = $logDateiOverride ?? $this->leseAktuelleLogDatei();
 			if (is_file($ldf)) {
 				$erm = $this->ermittleFilterMetadaten();
 				$filterMetadaten['verfuegbareFilterTypen'] = $erm['verfuegbareFilterTypen'] ?? [];
@@ -895,7 +898,7 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 				$this->schreibeFilterMetadaten($roh);
 			}
 		}
-		$logDatei = $this->leseAktuelleLogDatei();
+		$logDatei = $logDateiOverride ?? $this->leseAktuelleLogDatei();
 		$maxZeilen = $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50));
 		$betriebsmodus = $this->ermittleAktivenModus();
 
