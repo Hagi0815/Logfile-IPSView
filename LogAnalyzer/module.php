@@ -54,6 +54,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			'maxZeilen'                => 50,
 			'theme'                    => 'dark',
 			'kompakt'                  => false,
+			'schriftgroesse'           => 12,
 			'filterTypen'              => [],
 			'objektIdFilter'           => '',
 			'senderFilter'             => [],
@@ -204,6 +205,11 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 					$this->schreibeStatus($status);
 					$this->leereSeitenCache();
 				}
+			} elseif ($aktion === 'SetzeSchriftgroesse') {
+				$groesse = max(8, min(20, (int) $wert));
+				$status = $this->leseStatus();
+				$status['schriftgroesse'] = $groesse;
+				$this->schreibeStatus($status);
 			} elseif ($aktion !== '') {
 				$this->RequestAction($aktion, $wert);
 			}
@@ -283,6 +289,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 
 		$metaTreffer = $treffer >= 0 ? $von . '&ndash;' . $bis . '&nbsp;/&nbsp;' . $treffer : '...';
 		$seiteAnz    = $seite + 1;
+		$schriftgroesse = max(8, min(20, (int)($status['schriftgroesse'] ?? 12)));
 
 		$logOpts = '';
 		foreach ($verfDateien as $d) {
@@ -297,6 +304,12 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		foreach ([20, 50, 100, 200, 500, 1000] as $z) {
 			$sel = ($z === $maxZeilen) ? ' selected' : '';
 			$zeilenOpts .= '<option value="' . $z . '"' . $sel . '>' . $z . '</option>';
+		}
+
+		$schriftOpts = '';
+		foreach ([8, 9, 10, 11, 12, 13, 14, 16, 18, 20] as $s) {
+			$sel = ($s === $schriftgroesse) ? ' selected' : '';
+			$schriftOpts .= '<option value="' . $s . '"' . $sel . '>' . $s . ' px</option>';
 		}
 
 		$modusOpts = '';
@@ -354,7 +367,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 
 		$css = '
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:Arial,Helvetica,sans-serif;font-size:13px;background:#1a1a1a;color:#ccc}
+body{font-family:Arial,Helvetica,sans-serif;font-size:var(--fs,12px);background:#1a1a1a;color:#ccc}
 .bar{background:#222;border-bottom:1px solid #2e2e2e;padding:8px 10px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}
 .bar2{background:#1e1e1e;border-bottom:1px solid #2a2a2a;padding:8px 10px;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
 .grp{display:flex;flex-direction:column;gap:3px}
@@ -376,14 +389,16 @@ table{width:100%;border-collapse:collapse}
 thead th{background:#7a4400;color:#fff;padding:6px 8px;text-align:left;font-size:11px;position:sticky;top:0;white-space:nowrap}
 tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 .tbl-wrap{overflow:auto;max-height:calc(100vh - 270px)}
-.cz{color:#555;white-space:nowrap;padding:3px 8px;font-size:11px}
-.co{white-space:nowrap;padding:3px 8px;font-size:11px;color:#888}
-.ct{white-space:nowrap;padding:3px 8px;font-size:11px;font-weight:bold}
-.cs{color:#aaa;padding:3px 8px;font-size:11px;white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis}
-.cm{padding:3px 8px;word-break:break-word;font-size:12px}
+.cz{color:#555;white-space:nowrap;padding:3px 8px;font-size:var(--fs,12px)}
+.co{white-space:nowrap;padding:3px 8px;font-size:var(--fs,12px);color:#888}
+.ct{white-space:nowrap;padding:3px 8px;font-size:var(--fs,12px);font-weight:bold}
+.cs{color:#aaa;padding:3px 8px;font-size:var(--fs,12px);white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis}
+.cm{padding:3px 8px;word-break:break-word;font-size:var(--fs,12px)}
 .empty{padding:14px;color:#555}';
 
-		return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><style>' . $css . '</style></head><body>'
+		$fs = max(8, min(20, (int)($status['schriftgroesse'] ?? 12)));
+		$cssVar = ":root{--fs:{$fs}px}";
+		return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><style>' . $css . $cssVar . '</style></head><body>'
 			. '<div class="bar">'
 			.   '<div class="grp"><span class="lbl">Logdatei</span>'
 			.   '<form method="GET" action="' . $h . '" style="display:contents">'
@@ -397,6 +412,10 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 			.   '<form method="GET" action="' . $h . '" style="display:contents">'
 			.   '<input type="hidden" name="a" value="SetzeBetriebsmodus">'
 			.   '<select name="v" onchange="this.form.submit()">' . $modusOpts . '</select></form></div>'
+			.   '<div class="grp"><span class="lbl">Schrift</span>'
+			.   '<form method="GET" action="' . $h . '" style="display:contents">'
+			.   '<input type="hidden" name="a" value="SetzeSchriftgroesse">'
+			.   '<select name="v" onchange="this.form.submit()" style="width:70px">' . $schriftOpts . '</select></form></div>'
 			.   '<span style="flex:1"></span>'
 			.   '<a class="btn"' . $disN . ' href="' . $h . '?a=SeiteZurueck">&#8249; Neuere</a>'
 			.   '<span class="mu" style="align-self:center">Seite&nbsp;' . $seiteAnz . '</span>'
@@ -708,6 +727,13 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 
 				case 'SetzeKompakt':
 					$status['kompakt'] = $this->normalisiereKompakt($Value);
+					$this->schreibeStatus($status);
+					$this->aktualisiereVisualisierung();
+					return;
+
+				case 'SetzeSchriftgroesse':
+					$groesse = max(8, min(20, (int) $Value));
+					$status['schriftgroesse'] = $groesse;
 					$this->schreibeStatus($status);
 					$this->aktualisiereVisualisierung();
 					return;
