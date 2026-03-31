@@ -8,22 +8,10 @@ $a = isset($_GET['a']) ? (string)$_GET['a'] : '';
 $v = isset($_GET['v']) ? (string)$_GET['v'] : '';
 
 // Preset-Aktionen
-if ($a === 'PresetSpeichern') {
-    LOGANALYZER_PresetSpeichern($instId, $v);
+// Preset-Aktionen: direkt über VerarbeiteHookAktion leiten (Cache-Umgehung)
+if ($a === 'PresetSpeichern' || $a === 'PresetLaden' || $a === 'PresetLoeschen') {
     header('Content-Type: text/html; charset=utf-8');
-    echo LOGANALYZER_VerarbeiteHookAktion($instId, '', '');
-    return;
-}
-if ($a === 'PresetLaden') {
-    LOGANALYZER_PresetLaden($instId, $v);
-    header('Content-Type: text/html; charset=utf-8');
-    echo LOGANALYZER_VerarbeiteHookAktion($instId, '', '');
-    return;
-}
-if ($a === 'PresetLoeschen') {
-    LOGANALYZER_PresetLoeschen($instId, $v);
-    header('Content-Type: text/html; charset=utf-8');
-    echo LOGANALYZER_VerarbeiteHookAktion($instId, '', '');
+    echo LOGANALYZER_VerarbeiteHookAktion($instId, $a, $v);
     return;
 }
 

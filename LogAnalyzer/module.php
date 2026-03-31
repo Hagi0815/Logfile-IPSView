@@ -181,6 +181,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 	{
 		$logDateiOverride = null;
 		$schriftgroesseOverride = null;
+		$presetsOverride = null;
 		try {
 			if ($aktion === 'LogDateiAuswaehlen') {
 				$datei = trim($wert);
@@ -235,8 +236,16 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				if ($treffer > 0 && $mz > 0) $ziel = min($ziel, (int)ceil($treffer/$mz)-1);
 				$status['seite'] = $ziel;
 				$this->schreibeStatus($status);
+			} elseif ($aktion === 'PresetSpeichern') {
+				$this->PresetSpeichern($wert);
+				// Frisch gespeicherte Presets direkt lesen und Override setzen
+				$presetsOverride = json_decode($this->ReadAttributeString('FilterPresets'), true) ?? [];
+			} elseif ($aktion === 'PresetLoeschen') {
+				$this->PresetLoeschen($wert);
+				$presetsOverride = json_decode($this->ReadAttributeString('FilterPresets'), true) ?? [];
 			} elseif ($aktion === 'PresetLaden') {
 				$this->PresetLaden($wert);
+				$presetsOverride = json_decode($this->ReadAttributeString('FilterPresets'), true) ?? [];
 			} elseif ($aktion === 'Schnellfilter') {
 				$sf = json_decode($wert, true) ?? [];
 				$status = $this->leseStatus();
@@ -262,7 +271,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		} catch (\Throwable $e) {
 			$this->SendDebug('VerarbeiteHookAktion', 'Fehler: ' . $e->getMessage(), 0);
 		}
-		return $this->erstelleHtmlMitLogDatei($logDateiOverride, $schriftgroesseOverride);
+		return $this->erstelleHtmlMitLogDatei($logDateiOverride, $schriftgroesseOverride, $presetsOverride);
 	}
 
 	public function ErstelleHtmlDirekt(): string
@@ -505,13 +514,16 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		return $zaehler;
 	}
 
-	private function erstelleHtmlMitLogDatei(?string $logDateiOverride, ?int $schriftgroesseOverride = null): string
+	private function erstelleHtmlMitLogDatei(?string $logDateiOverride, ?int $schriftgroesseOverride = null, ?array $presetsOverride = null): string
 	{
 		try {
 			$daten = $this->erstelleVisualisierungsDaten($logDateiOverride);
 			$daten['status'] = $this->leseStatus();
 			if ($schriftgroesseOverride !== null) {
 				$daten['status']['schriftgroesse'] = $schriftgroesseOverride;
+			}
+			if ($presetsOverride !== null) {
+				$daten['filterPresets'] = $presetsOverride;
 			}
 			return $this->erstelleHtmlFuerIPSView($daten);
 		} catch (\Throwable $e) {
