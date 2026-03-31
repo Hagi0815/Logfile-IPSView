@@ -590,7 +590,7 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 			.   '<span class="mu" style="align-self:center">Seite&nbsp;' . $seiteAnz . '</span>'
 			.   '<a class="btn"' . $disA . ' href="' . $h . '?a=SeiteVor">Ältere&nbsp;&#8250;</a>'
 			.   '<a class="btn" href="' . $h . '?a=Aktualisieren">&#8635;</a>'
-'			.   '<div class="grp"><span class="lbl">Ansicht</span><div style="display:flex;gap:4px">'
+			.   '<div class="grp"><span class="lbl">Ansicht</span><div style="display:flex;gap:4px">'
 			.   '<a class="btn' . ($kompakt ? ' btn-p' : '') . '" href="' . $h . '?a=SetzeKompakt&v=' . ($kompakt?'0':'1') . '">&#8801; Kompakt</a>'
 			.   '</div></div>'
 			.   '<div class="grp"><span class="lbl">Live</span>'
