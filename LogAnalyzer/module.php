@@ -179,13 +179,16 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				$datei = trim($wert);
 				// Validierung: Datei muss im IPS-Log-Verzeichnis liegen und existieren
 				$logDir = rtrim(IPS_GetLogDir(), DIRECTORY_SEPARATOR);
+				// Validierung: Datei muss existieren und im Log-Verzeichnis liegen
+				// Achtung: realpath() + strtolower() für Windows-Kompatibilität (case-insensitiv)
 				$dateiReal = realpath($datei);
 				$logDirReal = realpath($logDir);
 				$gueltig = $dateiReal !== false
 					&& $logDirReal !== false
-					&& strpos($dateiReal, $logDirReal) === 0
-					&& is_file($dateiReal);
-				$this->SendDebug('LogDateiAuswaehlen', "wert={$wert} dateiReal={$dateiReal} gueltig=" . ($gueltig?'ja':'nein'), 0);
+					&& stripos($dateiReal, $logDirReal) === 0
+					&& is_file($dateiReal)
+					&& preg_match('/logfile.*\.log$/i', basename($dateiReal));
+				$this->SendDebug('LogDateiAuswaehlen', "wert={$wert} dateiReal={$dateiReal} logDirReal={$logDirReal} gueltig=" . ($gueltig?'ja':'nein'), 0);
 				if ($gueltig) {
 					$this->WriteAttributeString('AktuelleLogDatei', $dateiReal);
 					$status = $this->leseStatus();
