@@ -99,8 +99,8 @@ class LogAnalyzerIPSView extends IPSModuleStrict
     {
 		// nicht löschen
         parent::Destroy();
-		$sid = @IPS_GetObjectIDByIdent('WebHookScript', $this->InstanceID);
-		if ($sid && IPS_ScriptExists($sid)) { IPS_DeleteScript($sid, true); }
+		// Script wird von IPS automatisch mit der Instanz gelöscht (Kind-Objekt)
+		// Kein manuelles Löschen nötig - würde bei Updates zu ID-Wechsel führen
     }
 
     /**
@@ -174,7 +174,29 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 	public function VerarbeiteHookAktion(string $aktion, string $wert): string
 	{
 		try {
-			if ($aktion !== '') {
+			if ($aktion === 'LogDateiAuswaehlen') {
+				// Synchron direkt schreiben, kein RequestAction (wäre async)
+				$datei = trim($wert);
+				$verfuegbareDateien = $this->ermittleVerfuegbareLogdateien();
+				$gueltigePfade = array_column($verfuegbareDateien, 'pfad');
+				if (in_array($datei, $gueltigePfade, true)) {
+					$this->WriteAttributeString('AktuelleLogDatei', $datei);
+					$status = $this->leseStatus();
+					$status['seite'] = 0;
+					$status['filterTypen'] = [];
+					$status['objektIdFilter'] = '';
+					$status['senderFilter'] = [];
+					$status['textFilter'] = '';
+					$status['trefferGesamt'] = -1;
+					$status['zaehlungLaeuft'] = false;
+					$status['dateiGroesseCache'] = 0;
+					$status['dateiMTimeCache'] = 0;
+					$status['tabellenLadungLaeuft'] = false;
+					$status['tabellenLadungText'] = '';
+					$this->schreibeStatus($status);
+					$this->leereSeitenCache();
+				}
+			} elseif ($aktion !== '') {
 				$this->RequestAction($aktion, $wert);
 			}
 		} catch (\Throwable $e) {
