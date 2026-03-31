@@ -1,7 +1,7 @@
 {
     "id": "{5D72157B-4E8F-49CA-BB0E-9AB53D4E7E37}",
     "name": "Log Analyzer IPSView",
-    "type": 3,
+    "type": 0,
     "vendor": "Christian Hagedorn",
     "aliases": [],
     "parentRequirements": [],
