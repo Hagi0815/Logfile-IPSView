@@ -216,6 +216,10 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				$status = $this->leseStatus();
 				$status['schriftgroesse'] = $groesse;
 				$this->schreibeStatus($status);
+			} elseif ($aktion === 'ErsteSeite') {
+				$status = $this->leseStatus();
+				$status['seite'] = 0;
+				$this->schreibeStatus($status);
 			} elseif ($aktion === 'SetzeKompakt') {
 				$k = ($wert === '1');
 				$status = $this->leseStatus();
@@ -252,6 +256,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		$scopeLabel = $scope === 'alle' ? 'Alle Treffer' : 'Aktuelle Seite';
 
 		$rows = '';
+		$pdfZnr = 1;
 		foreach ($zeilen as $z) {
 			$zeit   = htmlspecialchars((string)($z['zeitstempel'] ?? ''));
 			$oid    = htmlspecialchars((string)($z['objektId'] ?? ''));
@@ -259,9 +264,10 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			$sender = htmlspecialchars((string)($z['sender'] ?? ''));
 			$msg    = htmlspecialchars((string)($z['meldung'] ?? ''));
 			$farbe  = $this->ermittleTypFarbe($typ);
-			$rows .= "<tr><td>{$zeit}</td><td>{$oid}</td>"
+			$rows .= "<tr><td style=\"color:#999;text-align:right\">{$pdfZnr}</td><td>{$zeit}</td><td>{$oid}</td>"
 				. "<td style=\"color:{$farbe};font-weight:bold\">{$typ}</td>"
 				. "<td>{$sender}</td><td>{$msg}</td></tr>";
+			$pdfZnr++;
 		}
 
 		return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">'
@@ -291,7 +297,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			. ($filterInfo ? '<br><b>Filter:</b> ' . htmlspecialchars($filterInfo) : '')
 			. '</div>'
 			. '<table><thead><tr>'
-			. '<th>Zeit</th><th>ObjektID</th><th>Typ</th><th>Sender</th><th>Meldung</th>'
+			. '<th style="width:30px">#</th><th>Zeit</th><th>ObjektID</th><th>Typ</th><th>Sender</th><th>Meldung</th>'
 			. '</tr></thead><tbody>' . $rows . '</tbody></table>'
 			. '</body></html>';
 	}
@@ -323,15 +329,12 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 	{
 		$status = $this->leseStatus();
 		if ($scope === 'alle') {
-			// Alle gefilterten Zeilen laden (temporär maxZeilen hochsetzen)
 			$statusExport = $status;
 			$statusExport['seite'] = 0;
-			$statusExport['maxZeilen'] = 99999;
-			$modus = $this->ermittleAktivenModus();
+			$statusExport['maxZeilen'] = 10000; // Sicherheitslimit für RAM/Timeout
 			$result = $this->ladeLogZeilen($statusExport);
 			return is_array($result['zeilen'] ?? null) ? $result['zeilen'] : [];
 		} else {
-			// Nur aktuelle Seite aus Cache
 			$cache = $this->leseSeitenCache();
 			return is_array($cache['zeilen'] ?? null) ? $cache['zeilen'] : [];
 		}
@@ -348,6 +351,10 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		if ($text) $teile[] = 'Text: ' . $text;
 		$oid = trim((string)($status['objektIdFilter'] ?? ''));
 		if ($oid) $teile[] = 'ObjektID: ' . $oid;
+		$von = trim((string)($status['zeitVon'] ?? ''));
+		if ($von) $teile[] = 'Von: ' . $von;
+		$bis = trim((string)($status['zeitBis'] ?? ''));
+		if ($bis) $teile[] = 'Bis: ' . $bis;
 		return implode(' | ', $teile);
 	}
 
@@ -499,8 +506,9 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				 'FATAL'=>'#ff4444','NOTIFY'=>'#d0aaff','SUCCESS'=>'#88ffcc','MESSAGE'=>'#cccccc','CUSTOM'=>'#ffcc88'];
 		$tbody = '';
 		$tbodyKl = $kompakt ? ' class="kompakt"' : '';
+		$znr = $seite * $maxZeilen + 1; // Startnummer für diese Seite
 		if (empty($zeilen)) {
-			$tbody = '<tr><td colspan="5" class="empty">Keine Eintr&auml;ge gefunden.</td></tr>';
+			$tbody = '<tr><td colspan="6" class="empty">Keine Eintr&auml;ge gefunden.</td></tr>';
 		} else {
 			foreach ($zeilen as $z) {
 				$typ  = htmlspecialchars((string)($z['typ']         ?? ''));
@@ -510,11 +518,19 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				$zeit = htmlspecialchars((string)($z['zeitstempel'] ?? ''));
 				$oid  = htmlspecialchars((string)($z['objektId']    ?? ''));
 				$fc   = $typF[strtoupper($typ)] ?? '#cccccc';
+				// Suchbegriff highlighten
+				if ($textFilter !== '') {
+					$hlPattern = '/' . preg_quote($textFilter, '/') . '/iu';
+					$hlReplace = '<mark style="background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px">$0</mark>';
+					$msg = preg_replace($hlPattern, $hlReplace, $msg) ?? $msg;
+					$snd = preg_replace($hlPattern, $hlReplace, $snd) ?? $snd;
+				}
 				// Lange Meldungen aufklappbar machen
 				$msgHtml = strlen($msgRaw) > 80
 					? '<span class="cm-kurz" onclick="this.classList.toggle(\'cm-kurz\');this.classList.toggle(\'cm-voll\')" title="Klicken zum Aufklappen">' . $msg . '</span>'
 					: $msg;
 				$tbody .= '<tr>'
+					. '<td class="cz" style="color:#444;min-width:30px;text-align:right">' . $znr++ . '</td>'
 					. '<td class="cz">' . $zeit . '</td>'
 					. '<td class="co">' . $oid  . '</td>'
 					. '<td class="ct" style="color:' . $fc . '">' . $typ . '</td>'
@@ -554,6 +570,7 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 .cs{color:#aaa;padding:3px 8px;font-size:var(--fs,12px);white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis}
 .cm{padding:3px 8px;word-break:break-word;font-size:var(--fs,12px)}
 .empty{padding:14px;color:#555}
+mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 .kompakt .cz,.kompakt .co,.kompakt .ct,.kompakt .cs,.kompakt .cm{padding:1px 6px}
 .kompakt thead th{padding:3px 6px}
 .cm-kurz{max-width:600px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
@@ -586,10 +603,11 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 			.   '<input type="hidden" name="a" value="SetzeSchriftgroesse">'
 			.   '<select name="v" onchange="this.form.submit()">' . $schriftOpts . '</select></form></div>'
 			.   '<span style="flex:1"></span>'
-			.   '<a class="btn"' . $disN . ' href="' . $h . '?a=SeiteZurueck">&#8249; Neuere</a>'
+			.   '<a class="btn"' . ($seite <= 0 ? ' disabled' : '') . ' href="' . $h . '?a=ErsteSeite" title="Zur neuesten Seite">&#8676;</a>'
+			.   '<a class="btn"' . $disN . ' href="' . $h . '?a=SeiteZurueck" title="Neuere (←)">&#8249; Neuere</a>'
 			.   '<span class="mu" style="align-self:center">Seite&nbsp;' . $seiteAnz . '</span>'
-			.   '<a class="btn"' . $disA . ' href="' . $h . '?a=SeiteVor">Ältere&nbsp;&#8250;</a>'
-			.   '<a class="btn" href="' . $h . '?a=Aktualisieren">&#8635;</a>'
+			.   '<a class="btn"' . $disA . ' href="' . $h . '?a=SeiteVor" title="Ältere (→)">Ältere&nbsp;&#8250;</a>'
+			.   '<a class="btn" href="' . $h . '?a=Aktualisieren" title="Aktualisieren (R)">&#8635;</a>'
 			.   '<div class="grp"><span class="lbl">Ansicht</span><div style="display:flex;gap:4px">'
 			.   '<a class="btn' . ($kompakt ? ' btn-p' : '') . '" href="' . $h . '?a=SetzeKompakt&v=' . ($kompakt?'0':'1') . '">&#8801; Kompakt</a>'
 			.   '</div></div>'
@@ -623,11 +641,11 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 			.   '<a class="btn btn-r" href="' . $h . '?a=FilterReset">&#10005; Reset</a></div>'
 			.   '<span style="flex:1"></span>'
 			.   '<div class="grp"><span class="lbl">Spalten</span><div style="display:flex;gap:8px;align-items:center">'
-			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="0" checked onchange="toggleSpalte(this)"> Zeit</label>'
-			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="1" checked onchange="toggleSpalte(this)"> ObjID</label>'
-			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="2" checked onchange="toggleSpalte(this)"> Typ</label>'
-			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="3" checked onchange="toggleSpalte(this)"> Sender</label>'
-			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="4" checked onchange="toggleSpalte(this)"> Meldung</label>'
+			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="1" checked onchange="toggleSpalte(this)"> Zeit</label>'
+			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="2" checked onchange="toggleSpalte(this)"> ObjID</label>'
+			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="3" checked onchange="toggleSpalte(this)"> Typ</label>'
+			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="4" checked onchange="toggleSpalte(this)"> Sender</label>'
+			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="5" checked onchange="toggleSpalte(this)"> Meldung</label>'
 			.   '</div></div>'
 			. '</div></form>'
 			. '<div class="meta">'
@@ -639,28 +657,35 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 			. '<div class="meta">' . $fb . '</div>'
 			. '<div class="tbl-wrap"><table' . $tbodyKl . '>'
 			. '<thead><tr>'
+			. '<th style="width:36px">#</th>'
 			. '<th style="width:140px">Zeit</th><th style="width:70px">ObjektID</th>'
 			. '<th style="width:90px">Typ</th><th style="width:190px">Sender</th><th>Meldung</th>'
 			. '</tr></thead>'
 			. '<tbody>' . $tbody . '</tbody></table></div>'
 			. '<script>'
 			. '(function(){'
-			. 'var hidden=JSON.parse(localStorage.getItem("la_hidden")||"[]");'
+			. 'var hidden=JSON.parse(localStorage.getItem("la_hidden_v2")||"[]");'
+			. 'function applyCol(c,show){'
+			.   'document.querySelectorAll("tr").forEach(function(r){var td=r.children[c];if(td){td.style.display=show?"":"none";}});'
+			. '}'
 			. 'document.querySelectorAll(".sp-cb").forEach(function(cb){'
 			.   'var c=parseInt(cb.dataset.col);'
 			.   'if(hidden.indexOf(c)>=0){cb.checked=false;applyCol(c,false);}'
 			. '});'
-			. 'function applyCol(c,show){'
-			.   'document.querySelectorAll("tr").forEach(function(r){var td=r.children[c];if(td){td.style.display=show?"":"none";}});'
-			. '}'
 			. 'window.toggleSpalte=function(cb){'
 			.   'var c=parseInt(cb.dataset.col),show=cb.checked;'
 			.   'applyCol(c,show);'
-			.   'var h=JSON.parse(localStorage.getItem("la_hidden")||"[]");'
+			.   'var h=JSON.parse(localStorage.getItem("la_hidden_v2")||"[]");'
 			.   'if(!show&&h.indexOf(c)<0)h.push(c);'
 			.   'if(show)h=h.filter(function(x){return x!==c;});'
-			.   'localStorage.setItem("la_hidden",JSON.stringify(h));'
+			.   'localStorage.setItem("la_hidden_v2",JSON.stringify(h));'
 			. '};'
+			. 'document.addEventListener("keydown",function(e){'
+			.   'if(e.target.tagName==="INPUT"||e.target.tagName==="SELECT"||e.target.tagName==="TEXTAREA")return;'
+			.   'if(e.key==="r"||e.key==="R"){location.href="' . $h . '?a=Aktualisieren";}'
+			.   'if(e.key==="ArrowLeft"||e.key==="n"||e.key==="N"){var l=document.querySelector("a[href*=SeiteZurueck]:not([disabled])");if(l)location.href=l.href;}'
+			.   'if(e.key==="ArrowRight"||e.key==="a"||e.key==="A"){var l=document.querySelector("a[href*=SeiteVor]:not([disabled])");if(l)location.href=l.href;}'
+			. '});'
 			. ($autoRefreshSek > 0 ? 'setTimeout(function(){location.reload();},' . ($autoRefreshSek * 1000) . ');' : '')
 			. '})();'
 			. '</script>'
@@ -802,6 +827,13 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 					$this->aktualisiereVisualisierungNurStatus('vor-tabellenladung-seitevor');
 					$this->aktualisiereVisualisierung();
 					return;
+				case 'ErsteSeite':
+					$status['seite'] = 0;
+					$this->schreibeStatus($status);
+					$this->setzeTabellenLadezustand(true, 'Neueste Seite wird geladen …', 'RequestAction/ErsteSeite');
+					$this->aktualisiereVisualisierung();
+					return;
+
 				case 'SeiteZurueck':
 					$status['seite'] = max(0, (int) $status['seite'] - 1);
 					$this->schreibeStatus($status);
@@ -2413,11 +2445,13 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 		$zeitVon = trim((string) ($status['zeitVon'] ?? ''));
 		$zeitBis = trim((string) ($status['zeitBis'] ?? ''));
 
-		// Zeitraum-Filter
+		// Zeitraum-Filter (Format: YYYY-MM-DD HH:MM oder YYYY-MM-DD)
 		if ($zeitVon !== '' || $zeitBis !== '') {
-			$zeilzeit = (string) ($felder['zeitstempel'] ?? '');
-			if ($zeitVon !== '' && strcmp($zeilzeit, $zeitVon) < 0) return false;
-			if ($zeitBis !== '' && strcmp($zeilzeit, $zeitBis) > 0) return false;
+			$zeilzeit = substr((string) ($felder['zeitstempel'] ?? ''), 0, 16); // auf Minuten kürzen
+			$vonNorm = strlen($zeitVon) === 10 ? $zeitVon . ' 00:00' : substr($zeitVon, 0, 16);
+			$bisNorm = strlen($zeitBis) === 10 ? $zeitBis . ' 23:59' : substr($zeitBis, 0, 16);
+			if ($vonNorm !== '' && strcmp($zeilzeit, $vonNorm) < 0) return false;
+			if ($bisNorm !== '' && strcmp($zeilzeit, $bisNorm) > 0) return false;
 		}
 
 		if (count($objektIds) > 0 && !in_array($felder['objektId'], $objektIds, true)) {
