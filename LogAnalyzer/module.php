@@ -1,16 +1,4 @@
 <?php
-/**
- * NEUSTART des Moduls: MC_ReloadModule(59139, "LogAnalyzer");
- * sudo /etc/init.d/symcon start
- * sudo /etc/init.d/symcon stop
- * sudo /etc/init.d/symcon restart
- *
- * ToDo:
- * - Ultra Version einbauen
- * - CSV Export neu implementieren
- * - DarkLight Abruf vom Tile ausgehend
- * - Ladezeit Filter 0ms, wenn nicht notwendig zum Laden, bei Modi System
-*/
 
 declare(strict_types=1);
 require_once __DIR__ . '/libs/LogAnalyzerStandardTrait.php';
@@ -29,13 +17,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 
     /**
      * Create
-     *
-     * Wird beim Erstellen der Modulinstanz aufgerufen.
-     * - Registriert Eigenschaften, Attribute und Timer
-     * - Initialisiert Standardwerte für Status und Cache
-     *
-     * Parameter: keine
-     * Rückgabewert: void
      */
 	public function Create(): void
 	{
