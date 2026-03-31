@@ -17,7 +17,7 @@ require_once __DIR__ . '/libs/LogAnalyzerStandardTrait.php';
 require_once __DIR__ . '/libs/LogAnalyzerSystemTrait.php';
 require_once __DIR__ . '/libs/LogAnalyzerUltraTrait.php';
 
-class LogAnalyzer extends IPSModuleStrict
+class LogAnalyzerIPSView extends IPSModuleStrict
 {
 	use LogAnalyzerStandardTrait;
 	use LogAnalyzerSystemTrait;
