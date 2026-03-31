@@ -4,11 +4,7 @@
     "type": 0,
     "vendor": "Christian Hagedorn",
     "aliases": [],
-    "parentRequirements": [
-        {
-            "{BA214400-809B-4B27-9B1D-5CA9B97F6378}": 1
-        }
-    ],
+    "parentRequirements": [],
     "childRequirements": [],
     "implemented": [],
     "prefix": "LOGANALYZER",
