@@ -43,7 +43,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		parent::Create();
 
 		$this->RegisterAttributeString('AktuelleLogDatei', '');
-		$this->RegisterAttributeString('FilterPresets', '[]');
 		$this->RegisterPropertyString('LogDatei', IPS_GetLogDir() . 'logfile.log');		// nur zu Initialisierung, wird später überschrieben
 		$this->RegisterPropertyInteger('MaxZeilen', 50);
 		$this->RegisterPropertyBoolean('VerwendeSift', false);
@@ -181,7 +180,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 	{
 		$logDateiOverride = null;
 		$schriftgroesseOverride = null;
-		$presetsOverride = null;
 		try {
 			if ($aktion === 'LogDateiAuswaehlen') {
 				$datei = trim($wert);
@@ -236,16 +234,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				if ($treffer > 0 && $mz > 0) $ziel = min($ziel, (int)ceil($treffer/$mz)-1);
 				$status['seite'] = $ziel;
 				$this->schreibeStatus($status);
-			} elseif ($aktion === 'PresetSpeichern') {
-				$this->PresetSpeichern($wert);
-				// Frisch gespeicherte Presets direkt lesen und Override setzen
-				$presetsOverride = json_decode($this->ReadAttributeString('FilterPresets'), true) ?? [];
-			} elseif ($aktion === 'PresetLoeschen') {
-				$this->PresetLoeschen($wert);
-				$presetsOverride = json_decode($this->ReadAttributeString('FilterPresets'), true) ?? [];
-			} elseif ($aktion === 'PresetLaden') {
-				$this->PresetLaden($wert);
-				$presetsOverride = json_decode($this->ReadAttributeString('FilterPresets'), true) ?? [];
+
 			} elseif ($aktion === 'Schnellfilter') {
 				$sf = json_decode($wert, true) ?? [];
 				$status = $this->leseStatus();
@@ -271,62 +260,12 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		} catch (\Throwable $e) {
 			$this->SendDebug('VerarbeiteHookAktion', 'Fehler: ' . $e->getMessage(), 0);
 		}
-		return $this->erstelleHtmlMitLogDatei($logDateiOverride, $schriftgroesseOverride, $presetsOverride);
+		return $this->erstelleHtmlMitLogDatei($logDateiOverride, $schriftgroesseOverride);
 	}
 
 	public function ErstelleHtmlDirekt(): string
 	{
 		return $this->erstelleHtmlMitLogDatei(null);
-	}
-
-	public function PresetSpeichern(string $name): void
-	{
-		if (trim($name) === '') return;
-		$status = $this->leseStatus();
-		$preset = [
-			'name'           => trim($name),
-			'filterTypen'    => $status['filterTypen'] ?? [],
-			'senderFilter'   => $status['senderFilter'] ?? [],
-			'textFilter'     => $status['textFilter'] ?? '',
-			'objektIdFilter' => $status['objektIdFilter'] ?? '',
-			'zeitVon'        => $status['zeitVon'] ?? '',
-			'zeitBis'        => $status['zeitBis'] ?? '',
-		];
-		$presets = json_decode($this->ReadAttributeString('FilterPresets'), true) ?? [];
-		// Gleichnamige überschreiben
-		$presets = array_values(array_filter($presets, fn($p) => ($p['name'] ?? '') !== $preset['name']));
-		$presets[] = $preset;
-		// Max 20 Presets
-		if (count($presets) > 20) array_shift($presets);
-		$this->WriteAttributeString('FilterPresets', json_encode(array_values($presets), JSON_UNESCAPED_UNICODE));
-	}
-
-	public function PresetLaden(string $name): void
-	{
-		$presets = json_decode($this->ReadAttributeString('FilterPresets'), true) ?? [];
-		foreach ($presets as $p) {
-			if (($p['name'] ?? '') === $name) {
-				$status = $this->leseStatus();
-				$status['filterTypen']    = $p['filterTypen'] ?? [];
-				$status['senderFilter']   = $p['senderFilter'] ?? [];
-				$status['textFilter']     = $p['textFilter'] ?? '';
-				$status['objektIdFilter'] = $p['objektIdFilter'] ?? '';
-				$status['zeitVon']        = $p['zeitVon'] ?? '';
-				$status['zeitBis']        = $p['zeitBis'] ?? '';
-				$status['seite']          = 0;
-				$status['trefferGesamt']  = -1;
-				$this->schreibeStatus($status);
-				$this->leereSeitenCache();
-				return;
-			}
-		}
-	}
-
-	public function PresetLoeschen(string $name): void
-	{
-		$presets = json_decode($this->ReadAttributeString('FilterPresets'), true) ?? [];
-		$presets = array_values(array_filter($presets, fn($p) => ($p['name'] ?? '') !== $name));
-		$this->WriteAttributeString('FilterPresets', json_encode($presets, JSON_UNESCAPED_UNICODE));
 	}
 
 	public function ObjektIdAufloesen(string $oid): string
@@ -470,25 +409,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		};
 	}
 
-	private function erstellePresetUi(array $daten, string $h): string
-	{
-		$presets = is_array($daten['filterPresets'] ?? null) ? $daten['filterPresets'] : [];
-		$opts = '<option value="">-- Preset laden --</option>';
-		foreach ($presets as $p) {
-			$pn = htmlspecialchars((string)($p['name'] ?? ''));
-			$opts .= '<option value="' . $pn . '">' . $pn . '</option>';
-		}
-		return '<div style="background:#1c1c1c;border-bottom:1px solid #2a2a2a;padding:4px 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
-			. '<span style="font-size:calc(var(--fs,12px) - 1px);color:#666;text-transform:uppercase;letter-spacing:.4px">Presets</span>'
-			. '<select id="preset-sel" style="background:#2a2a2a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:3px 6px;font-size:var(--fs,12px)" onchange="presetLaden(this.value)">' . $opts . '</select>'
-			. '<span id="preset-del-wrap" style="display:none"><a href="#" class="btn btn-r" style="padding:3px 10px" onclick="presetLoeschen();return false">&#10005; Löschen</a></span>'
-			. '<span id="preset-save-wrap" style="display:flex;gap:4px;align-items:center">'
-			. '<input type="text" id="preset-name" placeholder="Preset-Name..." style="width:140px;background:#2a2a2a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:3px 6px;font-size:var(--fs,12px)">'
-			. '<a href="#" class="btn" style="padding:3px 10px" onclick="presetSpeichern();return false">&#9998; Speichern</a>'
-			. '</span>'
-			. '</div>';
-	}
-
 	private function ermittleTagesZusammenfassung(string $logDatei): array
 	{
 		$heute = date('Y-m-d');
@@ -514,16 +434,13 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		return $zaehler;
 	}
 
-	private function erstelleHtmlMitLogDatei(?string $logDateiOverride, ?int $schriftgroesseOverride = null, ?array $presetsOverride = null): string
+	private function erstelleHtmlMitLogDatei(?string $logDateiOverride, ?int $schriftgroesseOverride = null): string
 	{
 		try {
 			$daten = $this->erstelleVisualisierungsDaten($logDateiOverride);
 			$daten['status'] = $this->leseStatus();
 			if ($schriftgroesseOverride !== null) {
 				$daten['status']['schriftgroesse'] = $schriftgroesseOverride;
-			}
-			if ($presetsOverride !== null) {
-				$daten['filterPresets'] = $presetsOverride;
 			}
 			return $this->erstelleHtmlFuerIPSView($daten);
 		} catch (\Throwable $e) {
@@ -817,7 +734,6 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="5" checked onchange="toggleSpalte(this)"> Meldung</label>'
 			.   '</div></div>'
 			. '</div></form>'
-			. $this->erstellePresetUi($daten, $h)
 			.   '<div class="meta">'
 			. '<span>&#128196; <b style="color:#ccc">' . $logDateiBn . '</b>&nbsp;' . $dateiGroesse . '</span>'
 			. (function() use ($daten) {
@@ -858,24 +774,6 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			.   'if(show)h=h.filter(function(x){return x!==c;});'
 			.   'localStorage.setItem("la_hidden_v2",JSON.stringify(h));'
 			. '};'
-			. '// Preset-Funktionen'
-			. 'function presetLaden(name){'
-			.   'var dw=document.getElementById("preset-del-wrap");'
-			.   'if(dw)dw.style.display=name?"": "none";'
-			.   'if(!name)return;'
-			.   'location.href="' . $h . '?a=PresetLaden&v="+encodeURIComponent(name);'
-			. '}'
-			. 'function presetSpeichern(){'
-			.   'var inp=document.getElementById("preset-name");'
-			.   'var name=inp?inp.value.trim():"";'
-			.   'if(!name){if(inp)inp.focus();return;}'
-			.   'location.href="' . $h . '?a=PresetSpeichern&v="+encodeURIComponent(name);'
-			. '}'
-			. 'function presetLoeschen(){'
-			.   'var sel=document.getElementById("preset-sel");'
-			.   'if(!sel||!sel.value)return;'
-			.   'location.href="' . $h . '?a=PresetLoeschen&v="+encodeURIComponent(sel.value);'
-			. '}'
 			. '// ObjektID Hover-Tooltip'
 			. 'var oidCache={};'
 			. 'document.addEventListener("mouseover",function(e){'
@@ -1468,7 +1366,6 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 
 		$ergebnis['dateiGroesse'] = $this->formatiereDateigroesse((int) filesize($logDatei));
 		$ergebnis['tagesZusammenfassung'] = $this->ermittleTagesZusammenfassung($logDatei);
-		$ergebnis['filterPresets'] = json_decode($this->ReadAttributeString('FilterPresets'), true) ?? [];
 
 		$start = microtime(true);
 		$leseErgebnis = $this->ladeLogZeilen($status);

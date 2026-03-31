@@ -7,14 +7,6 @@ if (!$instId || !IPS_InstanceExists($instId)) { echo "Instanz nicht gefunden."; 
 $a = isset($_GET['a']) ? (string)$_GET['a'] : '';
 $v = isset($_GET['v']) ? (string)$_GET['v'] : '';
 
-// Preset-Aktionen
-// Preset-Aktionen: direkt über VerarbeiteHookAktion leiten (Cache-Umgehung)
-if ($a === 'PresetSpeichern' || $a === 'PresetLaden' || $a === 'PresetLoeschen') {
-    header('Content-Type: text/html; charset=utf-8');
-    echo LOGANALYZER_VerarbeiteHookAktion($instId, $a, $v);
-    return;
-}
-
 // ObjektID auflösen (JSON-API)
 if ($a === 'ObjektIdAufloesen') {
     header('Content-Type: application/json; charset=utf-8');
