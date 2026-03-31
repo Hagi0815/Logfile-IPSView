@@ -177,10 +177,17 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			if ($aktion === 'LogDateiAuswaehlen') {
 				// Synchron direkt schreiben, kein RequestAction (wäre async)
 				$datei = trim($wert);
-				$verfuegbareDateien = $this->ermittleVerfuegbareLogdateien();
-				$gueltigePfade = array_column($verfuegbareDateien, 'pfad');
-				if (in_array($datei, $gueltigePfade, true)) {
-					$this->WriteAttributeString('AktuelleLogDatei', $datei);
+				// Validierung: Datei muss im IPS-Log-Verzeichnis liegen und existieren
+				$logDir = rtrim(IPS_GetLogDir(), DIRECTORY_SEPARATOR);
+				$dateiReal = realpath($datei);
+				$logDirReal = realpath($logDir);
+				$gueltig = $dateiReal !== false
+					&& $logDirReal !== false
+					&& strpos($dateiReal, $logDirReal) === 0
+					&& is_file($dateiReal);
+				$this->SendDebug('LogDateiAuswaehlen', "wert={$wert} dateiReal={$dateiReal} gueltig=" . ($gueltig?'ja':'nein'), 0);
+				if ($gueltig) {
+					$this->WriteAttributeString('AktuelleLogDatei', $dateiReal);
 					$status = $this->leseStatus();
 					$status['seite'] = 0;
 					$status['filterTypen'] = [];
