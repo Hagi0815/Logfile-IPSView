@@ -55,6 +55,10 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			'theme'                    => 'dark',
 			'kompakt'                  => false,
 			'schriftgroesse'           => 12,
+			'kompakt'                  => false,
+			'autoRefreshSek'           => 0,
+			'zeitVon'                  => '',
+			'zeitBis'                  => '',
 			'filterTypen'              => [],
 			'objektIdFilter'           => '',
 			'senderFilter'             => [],
@@ -208,9 +212,19 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				}
 			} elseif ($aktion === 'SetzeSchriftgroesse') {
 				$groesse = max(8, min(20, (int) $wert));
-				$schriftgroesseOverride = $groesse; // Cache umgehen
+				$schriftgroesseOverride = $groesse;
 				$status = $this->leseStatus();
 				$status['schriftgroesse'] = $groesse;
+				$this->schreibeStatus($status);
+			} elseif ($aktion === 'SetzeKompakt') {
+				$k = ($wert === '1');
+				$status = $this->leseStatus();
+				$status['kompakt'] = $k;
+				$this->schreibeStatus($status);
+			} elseif ($aktion === 'SetzeAutoRefresh') {
+				$sek = max(0, (int) $wert);
+				$status = $this->leseStatus();
+				$status['autoRefreshSek'] = $sek;
 				$this->schreibeStatus($status);
 			} elseif ($aktion !== '') {
 				$this->RequestAction($aktion, $wert);
@@ -417,6 +431,10 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		$metaTreffer = $treffer >= 0 ? $von . '&ndash;' . $bis . '&nbsp;/&nbsp;' . $treffer : '...';
 		$seiteAnz    = $seite + 1;
 		$schriftgroesse = max(8, min(20, (int)($status['schriftgroesse'] ?? 12)));
+		$kompakt        = (bool)($status['kompakt'] ?? false);
+		$autoRefreshSek = max(0, (int)($status['autoRefreshSek'] ?? 0));
+		$zeitVon        = (string)($status['zeitVon'] ?? '');
+		$zeitBis        = (string)($status['zeitBis'] ?? '');
 
 		$logOpts = '';
 		foreach ($verfDateien as $d) {
@@ -437,6 +455,12 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		foreach ([8, 9, 10, 11, 12, 13, 14, 16, 18, 20] as $s) {
 			$sel = ($s === $schriftgroesse) ? ' selected' : '';
 			$schriftOpts .= '<option value="' . $s . '"' . $sel . '>' . $s . ' px</option>';
+		}
+
+		$refreshOpts = '';
+		foreach ([0=>'Aus', 5=>'5s', 10=>'10s', 30=>'30s', 60=>'60s', 120=>'2min'] as $rv => $rl) {
+			$sel = ($rv === $autoRefreshSek) ? ' selected' : '';
+			$refreshOpts .= '<option value="' . $rv . '"' . $sel . '>' . $rl . '</option>';
 		}
 
 		$modusOpts = '';
@@ -464,6 +488,8 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		foreach ($aktiveSender as $s) $fb .= '<span class="fb">Sender: ' . htmlspecialchars($s) . '</span>';
 		if ($textFilter)   $fb .= '<span class="fb">Text: ' . $textFilter . '</span>';
 		if ($objektFilter) $fb .= '<span class="fb">ObjID: ' . $objektFilter . '</span>';
+		if ($zeitVon)      $fb .= '<span class="fb">Von: ' . htmlspecialchars($zeitVon) . '</span>';
+		if ($zeitBis)      $fb .= '<span class="fb">Bis: ' . htmlspecialchars($zeitBis) . '</span>';
 		$fb = $fb ?: '<span class="mu">Kein Filter aktiv</span>';
 
 		$disN = ($seite <= 0) ? ' disabled' : '';
@@ -472,22 +498,28 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		$typF = ['DEBUG'=>'#7ecfff','INFO'=>'#aaffaa','WARNING'=>'#ffd080','ERROR'=>'#ff7070',
 				 'FATAL'=>'#ff4444','NOTIFY'=>'#d0aaff','SUCCESS'=>'#88ffcc','MESSAGE'=>'#cccccc','CUSTOM'=>'#ffcc88'];
 		$tbody = '';
+		$tbodyKl = $kompakt ? ' class="kompakt"' : '';
 		if (empty($zeilen)) {
 			$tbody = '<tr><td colspan="5" class="empty">Keine Eintr&auml;ge gefunden.</td></tr>';
 		} else {
 			foreach ($zeilen as $z) {
 				$typ  = htmlspecialchars((string)($z['typ']         ?? ''));
 				$snd  = htmlspecialchars((string)($z['sender']      ?? ''));
-				$msg  = htmlspecialchars((string)($z['meldung']     ?? ''));
+				$msgRaw = (string)($z['meldung'] ?? '');
+				$msg  = htmlspecialchars($msgRaw);
 				$zeit = htmlspecialchars((string)($z['zeitstempel'] ?? ''));
 				$oid  = htmlspecialchars((string)($z['objektId']    ?? ''));
 				$fc   = $typF[strtoupper($typ)] ?? '#cccccc';
+				// Lange Meldungen aufklappbar machen
+				$msgHtml = strlen($msgRaw) > 80
+					? '<span class="cm-kurz" onclick="this.classList.toggle(\'cm-kurz\');this.classList.toggle(\'cm-voll\')" title="Klicken zum Aufklappen">' . $msg . '</span>'
+					: $msg;
 				$tbody .= '<tr>'
 					. '<td class="cz">' . $zeit . '</td>'
 					. '<td class="co">' . $oid  . '</td>'
 					. '<td class="ct" style="color:' . $fc . '">' . $typ . '</td>'
 					. '<td class="cs">' . $snd  . '</td>'
-					. '<td class="cm">' . $msg  . '</td>'
+					. '<td class="cm">' . $msgHtml . '</td>'
 					. '</tr>';
 			}
 		}
@@ -521,11 +553,21 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 .ct{white-space:nowrap;padding:3px 8px;font-size:var(--fs,12px);font-weight:bold}
 .cs{color:#aaa;padding:3px 8px;font-size:var(--fs,12px);white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis}
 .cm{padding:3px 8px;word-break:break-word;font-size:var(--fs,12px)}
-.empty{padding:14px;color:#555}';
+.empty{padding:14px;color:#555}
+.kompakt .cz,.kompakt .co,.kompakt .ct,.kompakt .cs,.kompakt .cm{padding:1px 6px}
+.kompakt thead th{padding:3px 6px}
+.cm-kurz{max-width:600px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.cm-voll{word-break:break-word;white-space:pre-wrap;cursor:pointer;background:#222;padding:4px 8px}
+.col-hidden{display:none}
+@media print{.bar,.bar2,.no-print{display:none!important}}
+';
 
 		$fs = max(8, min(20, (int)($status['schriftgroesse'] ?? 12)));
 		$cssVar = ":root{--fs:{$fs}px}";
-		return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><style>' . $css . $cssVar . '</style></head><body>'
+		$refreshMeta = $autoRefreshSek > 0
+			? '<meta http-equiv="refresh" content="' . $autoRefreshSek . '">'
+			: '';
+		return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">' . $refreshMeta . '<style>' . $css . $cssVar . '</style></head><body>'
 			. '<div class="bar">'
 			.   '<div class="grp"><span class="lbl">Logdatei</span>'
 			.   '<form method="GET" action="' . $h . '" style="display:contents">'
@@ -548,6 +590,13 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 			.   '<span class="mu" style="align-self:center">Seite&nbsp;' . $seiteAnz . '</span>'
 			.   '<a class="btn"' . $disA . ' href="' . $h . '?a=SeiteVor">Ältere&nbsp;&#8250;</a>'
 			.   '<a class="btn" href="' . $h . '?a=Aktualisieren">&#8635;</a>'
+'			.   '<div class="grp"><span class="lbl">Ansicht</span><div style="display:flex;gap:4px">'
+			.   '<a class="btn' . ($kompakt ? ' btn-p' : '') . '" href="' . $h . '?a=SetzeKompakt&v=' . ($kompakt?'0':'1') . '">&#8801; Kompakt</a>'
+			.   '</div></div>'
+			.   '<div class="grp"><span class="lbl">Live</span>'
+			.   '<form method="GET" action="' . $h . '" style="display:contents">'
+			.   '<input type="hidden" name="a" value="SetzeAutoRefresh">'
+			.   '<select name="v" onchange="this.form.submit()">' . $refreshOpts . '</select></form></div>'
 			.   '<span style="width:1px;background:#3a3a3a;align-self:stretch;margin:0 4px"></span>'
 			.   '<div class="grp"><span class="lbl">Export</span><div style="display:flex;gap:4px">'
 			.   '<a class="btn" title="PDF aktuelle Seite" href="' . $h . '?a=ExportPdf&amp;scope=seite" target="_blank">&#128196; PDF</a>'
@@ -565,9 +614,21 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 			.   '<div class="grp"><span class="lbl">Text-Filter</span>'
 			.   '<input type="text" name="tf" value="' . $textFilter . '" placeholder="Freitext..." style="width:140px">'
 			.   '<input type="text" name="oi" value="' . $objektFilter . '" placeholder="ObjektID..." style="width:120px;margin-top:4px"></div>'
+			.   '<div class="grp"><span class="lbl">Von</span>'
+			.   '<input type="text" name="zv" value="' . htmlspecialchars($zeitVon) . '" placeholder="2026-01-01 00:00" style="width:135px"></div>'
+			.   '<div class="grp"><span class="lbl">Bis</span>'
+			.   '<input type="text" name="zb" value="' . htmlspecialchars($zeitBis) . '" placeholder="2026-12-31 23:59" style="width:135px"></div>'
 			.   '<div class="grp" style="flex-direction:row;gap:6px;align-self:flex-end">'
 			.   '<button type="submit" class="btn btn-p">Filter anwenden</button>'
 			.   '<a class="btn btn-r" href="' . $h . '?a=FilterReset">&#10005; Reset</a></div>'
+			.   '<span style="flex:1"></span>'
+			.   '<div class="grp"><span class="lbl">Spalten</span><div style="display:flex;gap:8px;align-items:center">'
+			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="0" checked onchange="toggleSpalte(this)"> Zeit</label>'
+			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="1" checked onchange="toggleSpalte(this)"> ObjID</label>'
+			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="2" checked onchange="toggleSpalte(this)"> Typ</label>'
+			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="3" checked onchange="toggleSpalte(this)"> Sender</label>'
+			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="4" checked onchange="toggleSpalte(this)"> Meldung</label>'
+			.   '</div></div>'
 			. '</div></form>'
 			. '<div class="meta">'
 			.   '<span>&#128196; <b style="color:#ccc">' . $logDateiBn . '</b>&nbsp;' . $dateiGroesse . '</span>'
@@ -576,12 +637,33 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 			.   '<span style="margin-left:auto">Stand:&nbsp;' . $ts . '</span>'
 			. '</div>'
 			. '<div class="meta">' . $fb . '</div>'
-			. '<div class="tbl-wrap"><table>'
+			. '<div class="tbl-wrap"><table' . $tbodyKl . '>'
 			. '<thead><tr>'
 			. '<th style="width:140px">Zeit</th><th style="width:70px">ObjektID</th>'
 			. '<th style="width:90px">Typ</th><th style="width:190px">Sender</th><th>Meldung</th>'
 			. '</tr></thead>'
 			. '<tbody>' . $tbody . '</tbody></table></div>'
+			. '<script>'
+			. '(function(){'
+			. 'var hidden=JSON.parse(localStorage.getItem("la_hidden")||"[]");'
+			. 'document.querySelectorAll(".sp-cb").forEach(function(cb){'
+			.   'var c=parseInt(cb.dataset.col);'
+			.   'if(hidden.indexOf(c)>=0){cb.checked=false;applyCol(c,false);}'
+			. '});'
+			. 'function applyCol(c,show){'
+			.   'document.querySelectorAll("tr").forEach(function(r){var td=r.children[c];if(td){td.style.display=show?"":"none";}});'
+			. '}'
+			. 'window.toggleSpalte=function(cb){'
+			.   'var c=parseInt(cb.dataset.col),show=cb.checked;'
+			.   'applyCol(c,show);'
+			.   'var h=JSON.parse(localStorage.getItem("la_hidden")||"[]");'
+			.   'if(!show&&h.indexOf(c)<0)h.push(c);'
+			.   'if(show)h=h.filter(function(x){return x!==c;});'
+			.   'localStorage.setItem("la_hidden",JSON.stringify(h));'
+			. '};'
+			. ($autoRefreshSek > 0 ? 'setTimeout(function(){location.reload();},' . ($autoRefreshSek * 1000) . ');' : '')
+			. '})();'
+			. '</script>'
 			. '</body></html>';
 	}
 
@@ -667,6 +749,8 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 					$status['senderFilter']   = [];
 					$status['textFilter']     = '';
 					$status['objektIdFilter'] = '';
+					$status['zeitVon']        = '';
+					$status['zeitBis']        = '';
 					$status['seite']          = 0;
 					$status['trefferGesamt']  = -1;
 					$this->schreibeStatus($status);
@@ -739,6 +823,8 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 					$status['objektIdFilter'] = $this->normalisiereObjektIdFilterString((string) ($daten['objektIdFilter'] ?? ''));
 					$status['senderFilter'] = $this->normalisiereSenderFilter($daten['senderFilter'] ?? []);
 					$status['textFilter'] = trim((string) ($daten['textFilter'] ?? ''));
+					$status['zeitVon'] = trim((string) ($daten['zeitVon'] ?? ''));
+					$status['zeitBis'] = trim((string) ($daten['zeitBis'] ?? ''));
 					$status['seite'] = 0;
 
 					$status['trefferGesamt'] = -1;
@@ -862,6 +948,12 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 
 				case 'SetzeKompakt':
 					$status['kompakt'] = $this->normalisiereKompakt($Value);
+					$this->schreibeStatus($status);
+					$this->aktualisiereVisualisierung();
+					return;
+
+				case 'SetzeAutoRefresh':
+					$status['autoRefreshSek'] = max(0, (int) $Value);
 					$this->schreibeStatus($status);
 					$this->aktualisiereVisualisierung();
 					return;
@@ -2318,6 +2410,15 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 		$objektIds = $this->normalisiereObjektIdFilterListe((string) ($status['objektIdFilter'] ?? ''));
 		$senderFilter = $this->normalisiereSenderFilter($status['senderFilter'] ?? []);
 		$textFilter = trim((string) ($status['textFilter'] ?? ''));
+		$zeitVon = trim((string) ($status['zeitVon'] ?? ''));
+		$zeitBis = trim((string) ($status['zeitBis'] ?? ''));
+
+		// Zeitraum-Filter
+		if ($zeitVon !== '' || $zeitBis !== '') {
+			$zeilzeit = (string) ($felder['zeitstempel'] ?? '');
+			if ($zeitVon !== '' && strcmp($zeilzeit, $zeitVon) < 0) return false;
+			if ($zeitBis !== '' && strcmp($zeilzeit, $zeitBis) > 0) return false;
+		}
 
 		if (count($objektIds) > 0 && !in_array($felder['objektId'], $objektIds, true)) {
 			return false;

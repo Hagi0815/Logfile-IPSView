@@ -22,7 +22,7 @@ if ($a === 'ExportCsv') {
 
 header('Content-Type: text/html; charset=utf-8');
 
-// Aktionen mit komplexen Werten separat vorbereiten
+// Aktionen mit komplexen Werten vorbereiten
 switch ($a) {
     case 'FilterAnwenden':
         $ft = isset($_GET['ft']) ? array_values(array_filter((array)$_GET['ft'])) : [];
@@ -32,6 +32,8 @@ switch ($a) {
             'objektIdFilter'=> trim($_GET['oi'] ?? ''),
             'senderFilter'  => $sf,
             'textFilter'    => trim($_GET['tf'] ?? ''),
+            'zeitVon'       => trim($_GET['zv'] ?? ''),
+            'zeitBis'       => trim($_GET['zb'] ?? ''),
         ], JSON_UNESCAPED_UNICODE);
         break;
     case 'SetzeMaxZeilen':
@@ -39,5 +41,4 @@ switch ($a) {
         break;
 }
 
-// Synchron: Aktion ausführen UND HTML rendern in einem Aufruf
 echo LOGANALYZER_VerarbeiteHookAktion($instId, $a, $v);
