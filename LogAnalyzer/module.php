@@ -163,6 +163,27 @@ class LogAnalyzerIPSView extends IPSModuleStrict
      * Parameter: keine
      * Rückgabewert: string
      */
+	/**
+	 * VerarbeiteHookAktion
+	 *
+	 * Verarbeitet eine Hook-Aktion SYNCHRON und gibt das HTML direkt zurück.
+	 * Wird vom hook_handler.php aufgerufen damit nach Aktionen (z.B. Logdatei
+	 * wechseln) sofort das aktualisierte HTML gerendert wird – ohne das
+	 * Timing-Problem von IPS_RequestAction (asynchron).
+	 */
+	public function VerarbeiteHookAktion(string $aktion, string $wert, array $extra = []): string
+	{
+		try {
+			if ($aktion !== '') {
+				$this->RequestAction($aktion, $wert !== '' ? $wert : (isset($extra['raw']) ? $extra['raw'] : ''));
+			}
+		} catch (\Throwable $e) {
+			// Aktion fehlgeschlagen, trotzdem HTML rendern
+			$this->SendDebug('VerarbeiteHookAktion', 'Fehler: ' . $e->getMessage(), 0);
+		}
+		return $this->ErstelleHtmlDirekt();
+	}
+
 	public function ErstelleHtmlDirekt(): string
 	{
 		try {

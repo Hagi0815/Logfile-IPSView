@@ -4,26 +4,27 @@ if (!isset($_IPS) || $_IPS['SENDER'] !== 'WebHook') { echo "Nur als WebHook aufr
 $instId = isset($LOGANALYZER_INSTANCE_ID) ? (int)$LOGANALYZER_INSTANCE_ID : 0;
 if (!$instId || !IPS_InstanceExists($instId)) { echo "Instanz nicht gefunden."; return; }
 
+header('Content-Type: text/html; charset=utf-8');
+
 $a = isset($_GET['a']) ? (string)$_GET['a'] : '';
 $v = isset($_GET['v']) ? (string)$_GET['v'] : '';
 
+// Aktionen mit komplexen Werten separat vorbereiten
 switch ($a) {
     case 'FilterAnwenden':
         $ft = isset($_GET['ft']) ? array_values(array_filter((array)$_GET['ft'])) : [];
-        $sf = isset($_GET['sf']) ? array_values(array_filter((array)$_GET['sf'])) : [];
-        IPS_RequestAction($instId, 'FilterAnwenden', json_encode([
-            'filterTypen'=>$ft, 'objektIdFilter'=>trim($_GET['oi']??''),
-            'senderFilter'=>$sf, 'textFilter'=>trim($_GET['tf']??''),
-        ], JSON_UNESCAPED_UNICODE));
+        $sf = isset($_GET['sf']) ? array_values(array_filter((array)$_GET['sf'])) : [];;
+        $v = json_encode([
+            'filterTypen'   => $ft,
+            'objektIdFilter'=> trim($_GET['oi'] ?? ''),
+            'senderFilter'  => $sf,
+            'textFilter'    => trim($_GET['tf'] ?? ''),
+        ], JSON_UNESCAPED_UNICODE);
         break;
-    case 'SeiteVor':        IPS_RequestAction($instId, 'SeiteVor', ''); break;
-    case 'SeiteZurueck':    IPS_RequestAction($instId, 'SeiteZurueck', ''); break;
-    case 'SetzeMaxZeilen':  IPS_RequestAction($instId, 'SetzeMaxZeilen', (int)$v); break;
-    case 'LogDateiAuswaehlen': IPS_RequestAction($instId, 'LogDateiAuswaehlen', $v); break;
-    case 'SetzeBetriebsmodus': IPS_RequestAction($instId, 'SetzeBetriebsmodus', $v); break;
-    case 'FilterReset':     IPS_RequestAction($instId, 'FilterReset', ''); break;
-    case 'Aktualisieren':   LOGANALYZER_AktualisierenVisualisierung($instId); break;
+    case 'SetzeMaxZeilen':
+        $v = (string)(int)$v;
+        break;
 }
 
-header('Content-Type: text/html; charset=utf-8');
-echo LOGANALYZER_ErstelleHtmlDirekt($instId);
+// Synchron: Aktion ausführen UND HTML rendern in einem Aufruf
+echo LOGANALYZER_VerarbeiteHookAktion($instId, $a, $v);
