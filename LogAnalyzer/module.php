@@ -652,7 +652,7 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:var(--fs,12px);background:
 .lbl{font-size:calc(var(--fs,12px) - 2px);color:#777;text-transform:uppercase;letter-spacing:.4px}
 select{background:#2a2a2a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:4px 7px;font-size:var(--fs,12px)}
 select:focus{outline:none;border-color:#666}
-select[multiple]{min-height:80px;max-height:120px}
+select[multiple]{min-height:unset}
 input[type=text]{background:#2a2a2a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:5px 8px;font-size:var(--fs,12px)}
 input[type=text]:focus{outline:none;border-color:#666}
 .btn{display:inline-block;background:#2a2a2a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:5px 12px;font-size:var(--fs,12px);text-decoration:none;cursor:pointer;white-space:nowrap}
@@ -733,20 +733,19 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			.   '<a class="btn" href="' . $h . '?a=Aktualisieren" title="Aktualisieren (R)">&#8635;</a>'
 			. '</div>'
 			. '<form id="filter-form" method="GET" action="' . $h . '"><input type="hidden" name="a" value="FilterAnwenden">'
-			. '<div class="bar2">'
+			. '<div class="bar2" style="align-items:center">'
 			.   '<div class="grp"><span class="lbl">Sender</span>'
-			.   '<select name="sf[]" multiple style="min-width:140px;max-height:80px">' . $sndOpts . '</select></div>'
+			.   '<select name="sf[]" multiple style="width:130px;height:26px;min-height:unset">' . $sndOpts . '</select></div>'
 			.   '<div class="grp"><span class="lbl">Text</span>'
 			.   '<input type="text" name="tf" value="' . $textFilter . '" placeholder="Freitext..." style="width:120px"></div>'
 			.   '<div class="grp"><span class="lbl">ObjID</span>'
-			.   '<input type="text" name="oi" value="' . $objektFilter . '" placeholder="ObjektID..." style="width:90px"></div>'
+			.   '<input type="text" name="oi" value="' . $objektFilter . '" placeholder="ObjektID..." style="width:80px"></div>'
 			.   '<div class="grp"><span class="lbl">Von</span>'
-			.   '<input type="text" name="zv" value="' . htmlspecialchars($zeitVon) . '" placeholder="2026-01-01" style="width:100px"></div>'
+			.   '<input type="text" name="zv" value="' . htmlspecialchars($zeitVon) . '" placeholder="2026-01-01" style="width:95px"></div>'
 			.   '<div class="grp"><span class="lbl">Bis</span>'
-			.   '<input type="text" name="zb" value="' . htmlspecialchars($zeitBis) . '" placeholder="2026-12-31" style="width:100px"></div>'
-			.   '<div class="grp" style="flex-direction:row;gap:4px;align-self:flex-end">'
-			.   '<button type="submit" class="btn btn-p">&#10003; Filter</button>'
-			.   '<a class="btn btn-r" href="' . $h . '?a=FilterReset">&#10005;</a></div>'
+			.   '<input type="text" name="zb" value="' . htmlspecialchars($zeitBis) . '" placeholder="2026-12-31" style="width:95px"></div>'
+			.   '<button type="submit" class="btn btn-p" style="align-self:flex-end;margin-bottom:1px">&#10003; Filter</button>'
+			.   '<a class="btn btn-r" href="' . $h . '?a=FilterReset" style="align-self:flex-end;margin-bottom:1px">&#10005;</a>'
 			.   '<span style="flex:1"></span>'
 			.   '<div class="grp"><span class="lbl">Spalten</span><div style="display:flex;gap:6px;align-items:center">'
 			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="1" checked onchange="toggleSpalte(this)"> Zeit</label>'
