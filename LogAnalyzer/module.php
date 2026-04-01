@@ -634,10 +634,17 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				// Schnellfilter: Klick auf Typ/Sender filtert sofort
 				$typLink = '<a href="' . $h . '?a=Schnellfilter&ft=' . urlencode($typRaw) . '" style="color:' . $fc . ';text-decoration:none" title="Nach diesem Typ filtern">' . $typ . '</a>';
 				$sndLink = '<a href="' . $h . '?a=Schnellfilter&sf=' . urlencode($sndRaw) . '" style="color:inherit;text-decoration:none" title="Nach diesem Sender filtern">' . $snd . '</a>';
-				// ObjektID mit Hover-Tooltip
-				$oidCell = ($oidRaw !== '' && $oidRaw !== '00000' && (int)$oidRaw > 0)
-					? '<span class="oid-hover" data-oid="' . $oidRaw . '" style="cursor:help">' . $oidRaw . '</span>'
-					: $oidRaw;
+				// ObjektID mit Name
+				$oidInt = (int)$oidRaw;
+				if ($oidInt > 0 && $oidRaw !== '00000' && IPS_ObjectExists($oidInt)) {
+					$oidName = htmlspecialchars(IPS_GetName($oidInt));
+					$oidCell = '<span class="oid-hover" data-oid="' . $oidRaw . '">'
+						. '<span style="color:#666">' . $oidRaw . '</span>'
+						. '<br><span style="color:#aaa;font-size:calc(var(--fs,12px) - 1px)">' . $oidName . '</span>'
+						. '</span>';
+				} else {
+					$oidCell = $oidRaw;
+				}
 				$tbody .= '<tr>'
 					. '<td class="cz" style="color:#444;min-width:30px;text-align:right">' . $znr++ . '</td>'
 					. '<td class="cz">' . $zeit . '</td>'
@@ -725,8 +732,8 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			. '</div>'
 			. '<form id="filter-form" method="GET" action="' . $h . '" onsubmit="return doFilter(event);"><input type="hidden" name="a" value="FilterAnwenden">'
 			. '<div class="bar2">'
-			.   '<div class="grp"><span class="lbl">Sender</span>'
-			.   '<div style="display:flex;flex-wrap:wrap;gap:4px;padding-top:2px;max-width:400px">'
+			.   '<div class="grp" style="flex:1"><span class="lbl">Sender</span>'
+			.   '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:3px 8px;padding-top:3px">'
 			.   ($sndCbs ?: '<span style="color:#555;font-size:var(--fs,12px)">...</span>')
 			.   '</div></div>'
 			.   '<div class="grp"><span class="lbl">Text</span>'
@@ -743,8 +750,8 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			.   '</div>'
 			. '</div>'
 			. '<div class="bar2" style="align-items:flex-start">'
-			.   '<div class="grp" style="flex:1"><span class="lbl">Typ</span>'
-			.   '<div style="display:flex;flex-wrap:wrap;gap:4px;padding-top:2px">'
+			.   '<div class="grp" style="flex:0 0 auto"><span class="lbl">Typ</span>'
+			.   '<div style="display:flex;flex-wrap:wrap;gap:3px 6px;padding-top:3px">'
 			.   ($typCbs ?: '<span style="color:#555;font-size:var(--fs,12px)">...</span>')
 			.   '</div></div>'
 			. '</div>'
