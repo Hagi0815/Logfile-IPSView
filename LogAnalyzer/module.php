@@ -334,9 +334,11 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				$topMsg = array_key_first($stundenMsgs[$i]);
 				if (strlen($topMsg) > 60) $topMsg = substr($topMsg, 0, 60) . '…';
 			}
-			$tipData = htmlspecialchars(json_encode(['h' => sprintf('%02d:00', $i), 'c' => $v, 'm' => $topMsg]), ENT_QUOTES);
+			$dH = htmlspecialchars(sprintf('%02d:00', $i), ENT_QUOTES);
+			$dC = $v;
+			$dM = htmlspecialchars($topMsg, ENT_QUOTES);
 			// Transparentes Hover-Rect über ganzer Balkenbreite
-			$svgBars .= '<rect x="' . $x . '" y="0" width="' . ($barW-2) . '" height="' . ($svgH-18) . '" fill="transparent" data-tip="' . $tipData . '" class="sh" cursor="pointer"/>';
+			$svgBars .= '<rect x="' . $x . '" y="0" width="' . ($barW-2) . '" height="' . ($svgH-18) . '" fill="transparent" data-h="' . $dH . '" data-c="' . $dC . '" data-m="' . $dM . '" class="sh" cursor="pointer"/>';
 			if ($bh > 0) $svgBars .= '<rect x="' . $x . '" y="' . $y . '" width="' . ($barW-2) . '" height="' . $bh . '" fill="' . $farbe . '" rx="2" pointer-events="none"/>';
 			$lbl = sprintf('%02d', $i);
 			$lx = $x + (int)($barW/2) - 5;
@@ -430,7 +432,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			. '</div>'
 			. '</div>'
 			. '<script>'
-			. '(function(){'
+			. 'document.addEventListener("DOMContentLoaded",function(){'
 			. 'var tip=document.getElementById("stunden-tip");'
 			. 'var tipBg=document.getElementById("stunden-tip-bg");'
 			. 'var tipH=document.getElementById("stunden-tip-h");'
@@ -439,11 +441,12 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			. 'if(!tip)return;'
 			. 'document.querySelectorAll(".sh").forEach(function(r){'
 			.   'r.addEventListener("mouseenter",function(){'
-			.     'var d=JSON.parse(r.getAttribute("data-tip")||"{}" );'
-			.     'if(d.c===undefined){tip.setAttribute("visibility","hidden");return;}'
-			.     'tipH.textContent=d.h+" Uhr – "+d.c+" Fehler/Warnings";'
-			.     'tipM.textContent=d.m||"";'
-			.     'tipC.textContent="";'
+			.     'var dh=r.getAttribute("data-h");'
+			.     'var dc=parseInt(r.getAttribute("data-c")||"0");'
+			.     'var dm=r.getAttribute("data-m")||"";'
+			.     'if(!dc){tip.setAttribute("visibility","hidden");return;}'
+			.     'tipH.textContent=dh+" Uhr – "+dc+" Fehler/Warnings";'
+			.     'tipM.textContent=dm;'
 			.     'var svgW=r.ownerSVGElement.viewBox.baseVal.width;'
 			.     'var svgH=r.ownerSVGElement.viewBox.baseVal.height;'
 			.     'var rx=parseFloat(r.getAttribute("x"));'
@@ -462,7 +465,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			.   '});'
 			.   'r.addEventListener("mouseleave",function(){tip.setAttribute("visibility","hidden");});'
 			. '});'
-			. '})();'
+			. '});'
 			. '</script>'
 			. '</body></html>';
 	}
