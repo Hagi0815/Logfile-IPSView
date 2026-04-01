@@ -306,13 +306,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			fclose($handle);
 		}
 
-		// Tooltip ans Ende - damit er über den Balken liegt
-		$svgBars .= '<g id="stunden-tip" visibility="hidden" pointer-events="none">'
-			. '<rect id="stunden-tip-bg" rx="3" fill="#2a2a2a" stroke="#555" stroke-width="1"/>'
-			. '<text id="stunden-tip-h" font-size="10" font-weight="bold" fill="#ffd080"></text>'
-			. '<text id="stunden-tip-c" font-size="9" fill="#ccc"></text>'
-			. '<text id="stunden-tip-m" font-size="8" fill="#aaa"></text>'
-			. '</g>';
 
 		// Top-Fehler sortieren
 		arsort($fehlerCount);
@@ -350,6 +343,12 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			$svgBars .= '<text x="' . $lx . '" y="' . ($svgH-6) . '" font-size="8" fill="#555" pointer-events="none">' . $lbl . '</text>';
 			if ($v > 0) $svgBars .= '<text x="' . $lx . '" y="' . ($y-3) . '" font-size="7" fill="#aaa" pointer-events="none">' . $v . '</text>';
 		}
+		// Tooltip ans Ende der SVG-Daten (liegt so über den Balken)
+		$svgBars .= '<g id="stunden-tip" visibility="hidden" pointer-events="none">'
+			. '<rect id="stunden-tip-bg" rx="4" fill="#2a2a2a" stroke="#666" stroke-width="1"/>'
+			. '<text id="stunden-tip-h" font-size="10" font-weight="bold" fill="#ffd080"></text>'
+			. '<text id="stunden-tip-m" font-size="8" fill="#bbb"></text>'
+			. '</g>';
 
 		// Top-Fehler Tabelle
 		$fehlerRows = '';
