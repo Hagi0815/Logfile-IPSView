@@ -166,26 +166,3 @@ IPS cached Attributwerte im selben PHP-Request. Beim Logdatei-Wechsel, Schriftgr
 ---
 
 ## Changelog
-
-### 0.7.1
-- Schnellfilter per Klick auf Sender/Typ
-- ObjektID Hover-Tooltip (Name + Typ)
-- Direkte Seiten-Eingabe + Letzte-Seite-Button
-- Fehler-Zusammenfassung heute in Meta-Leiste
-- Suchbegriff-Highlighting in Meldung und Sender
-- Zeilennummern (#-Spalte)
-- Tastaturkürzel (R, ←/→, Pos1, Ende)
-
-### 0.7.0
-- Schriftgröße-Dropdown (skaliert gesamte Oberfläche)
-- Kompakt-Modus
-- Auto-Refresh / Live-Modus
-- Zeitraum-Filter (Von/Bis)
-- Meldungen aufklappbar
-- Spalten ein-/ausblenden
-- PDF- und CSV-Export
-
-### 0.6.x
-- Logdatei-Auswahl per Dropdown
-- Mehrseitiger Filter mit Badges
-- Paginierung mit Seite vor/zurück
