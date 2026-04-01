@@ -180,6 +180,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 	{
 		$logDateiOverride = null;
 		$schriftgroesseOverride = null;
+		$autoRefreshOverride = null;
 		try {
 			if ($aktion === 'LogDateiAuswaehlen') {
 				$datei = trim($wert);
@@ -244,23 +245,19 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				$status['trefferGesamt'] = -1;
 				$this->schreibeStatus($status);
 				$this->leereSeitenCache();
-			} elseif ($aktion === 'SetzeKompakt') {
-				$k = ($wert === '1');
-				$status = $this->leseStatus();
-				$status['kompakt'] = $k;
-				$this->schreibeStatus($status);
 			} elseif ($aktion === 'SetzeAutoRefresh') {
 				$sek = max(0, (int) $wert);
 				$status = $this->leseStatus();
 				$status['autoRefreshSek'] = $sek;
 				$this->schreibeStatus($status);
+				$autoRefreshOverride = $sek;
 			} elseif ($aktion !== '') {
 				$this->RequestAction($aktion, $wert);
 			}
 		} catch (\Throwable $e) {
 			$this->SendDebug('VerarbeiteHookAktion', 'Fehler: ' . $e->getMessage(), 0);
 		}
-		return $this->erstelleHtmlMitLogDatei($logDateiOverride, $schriftgroesseOverride);
+		return $this->erstelleHtmlMitLogDatei($logDateiOverride, $schriftgroesseOverride, $autoRefreshOverride);
 	}
 
 	public function ErstelleHtmlDirekt(): string
@@ -446,13 +443,16 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		return $zaehler;
 	}
 
-	private function erstelleHtmlMitLogDatei(?string $logDateiOverride, ?int $schriftgroesseOverride = null): string
+	private function erstelleHtmlMitLogDatei(?string $logDateiOverride, ?int $schriftgroesseOverride = null, ?int $autoRefreshOverride = null): string
 	{
 		try {
 			$daten = $this->erstelleVisualisierungsDaten($logDateiOverride);
 			$daten['status'] = $this->leseStatus();
 			if ($schriftgroesseOverride !== null) {
 				$daten['status']['schriftgroesse'] = $schriftgroesseOverride;
+			}
+			if ($autoRefreshOverride !== null) {
+				$daten['status']['autoRefreshSek'] = $autoRefreshOverride;
 			}
 			return $this->erstelleHtmlFuerIPSView($daten);
 		} catch (\Throwable $e) {
@@ -516,7 +516,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		$seiteAnz    = $seite + 1;
 		$letzteSeite = ($treffer > 0 && $maxZeilen > 0) ? max(0, (int)ceil($treffer / $maxZeilen) - 1) : -1;
 		$schriftgroesse = max(8, min(20, (int)($status['schriftgroesse'] ?? 12)));
-		$kompakt        = (bool)($status['kompakt'] ?? false);
 		$autoRefreshSek = max(0, (int)($status['autoRefreshSek'] ?? 0));
 		$zeitVon        = (string)($status['zeitVon'] ?? '');
 		$zeitBis        = (string)($status['zeitBis'] ?? '');
@@ -598,7 +597,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		$typF = ['DEBUG'=>'#7ecfff','INFO'=>'#aaffaa','WARNING'=>'#ffd080','ERROR'=>'#ff7070',
 				 'FATAL'=>'#ff4444','NOTIFY'=>'#d0aaff','SUCCESS'=>'#88ffcc','MESSAGE'=>'#cccccc','CUSTOM'=>'#ffcc88'];
 		$tbody = '';
-		$tbodyKl = $kompakt ? ' class="kompakt"' : '';
 		$znr = $seite * $maxZeilen + 1; // Startnummer für diese Seite
 		if (empty($zeilen)) {
 			$tbody = '<tr><td colspan="6" class="empty">Keine Eintr&auml;ge gefunden.</td></tr>';
@@ -676,8 +674,6 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 .oid-hover{position:relative}
 .oid-tip{position:absolute;left:0;top:100%;z-index:99;background:#333;color:#ddd;border:1px solid #555;border-radius:4px;padding:4px 8px;font-size:11px;white-space:nowrap;pointer-events:none;margin-top:2px}
-.kompakt .cz,.kompakt .co,.kompakt .ct,.kompakt .cs,.kompakt .cm{padding:1px 6px}
-.kompakt thead th{padding:3px 6px}
 .cm-kurz{max-width:600px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
 .cm-voll{word-break:break-word;white-space:pre-wrap;cursor:pointer;background:#222;padding:4px 8px}
 .col-hidden{display:none}
@@ -712,7 +708,6 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			.   '<input type="hidden" name="a" value="SetzeAutoRefresh">'
 			.   '<select name="v" onchange="this.form.submit()">' . $refreshOpts . '</select></form></div>'
 			.   '<span style="width:1px;background:#333;align-self:stretch;margin:0 2px"></span>'
-			.   '<a class="btn' . ($kompakt ? ' btn-p' : '') . '" href="' . $h . '?a=SetzeKompakt&v=' . ($kompakt?'0':'1') . '" title="Kompakt">&#8801;</a>'
 			.   '<span style="width:1px;background:#333;align-self:stretch;margin:0 2px"></span>'
 			.   '<a class="btn" href="' . $h . '?a=ExportPdf&amp;scope=seite" target="_blank">&#128196; PDF</a>'
 			.   '<a class="btn" href="' . $h . '?a=ExportPdf&amp;scope=alle" target="_blank">&#128196; PDF Alle</a>'
@@ -771,7 +766,6 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			. '<span style="margin-left:auto">Stand:&nbsp;' . $ts . '</span>'
 			. '</div>'
 			. '<div class="meta">' . $fb . '</div>'
-			. '<div class="tbl-wrap"><table' . $tbodyKl . '>'
 			. '<thead><tr>'
 			. '<th style="width:36px">#</th>'
 			. '<th style="width:140px">Zeit</th><th style="width:70px">ObjektID</th>'
@@ -1138,7 +1132,6 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 					$this->aktualisiereVisualisierung();
 					return;
 
-				case 'SetzeKompakt':
 					$status['kompakt'] = $this->normalisiereKompakt($Value);
 					$this->schreibeStatus($status);
 					$this->aktualisiereVisualisierung();
