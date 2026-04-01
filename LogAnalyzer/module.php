@@ -1,4 +1,16 @@
 <?php
+/**
+ * NEUSTART des Moduls: MC_ReloadModule(59139, "LogAnalyzer");
+ * sudo /etc/init.d/symcon start
+ * sudo /etc/init.d/symcon stop
+ * sudo /etc/init.d/symcon restart
+ *
+ * ToDo:
+ * - Ultra Version einbauen
+ * - CSV Export neu implementieren
+ * - DarkLight Abruf vom Tile ausgehend
+ * - Ladezeit Filter 0ms, wenn nicht notwendig zum Laden, bei Modi System
+*/
 
 declare(strict_types=1);
 require_once __DIR__ . '/libs/LogAnalyzerStandardTrait.php';
@@ -17,6 +29,13 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 
     /**
      * Create
+     *
+     * Wird beim Erstellen der Modulinstanz aufgerufen.
+     * - Registriert Eigenschaften, Attribute und Timer
+     * - Initialisiert Standardwerte für Status und Cache
+     *
+     * Parameter: keine
+     * Rückgabewert: void
      */
 	public function Create(): void
 	{
@@ -523,11 +542,26 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			$modusOpts .= '<option value="' . $val . '"' . $sel . '>' . $lbl . '</option>';
 		}
 
-		$typOpts = '<option value="">— Alle Typen —</option>';
+		// Farbzuordnung für Checkbox-Leiste
+		$typFarben = [
+			'DEBUG'   => '#7ecfff', 'INFO'    => '#aaffaa', 'WARNING' => '#ffd080',
+			'ERROR'   => '#ff7070', 'FATAL'   => '#ff4444', 'NOTIFY'  => '#d0aaff',
+			'SUCCESS' => '#88ffcc', 'MESSAGE' => '#cccccc', 'CUSTOM'  => '#ffcc88',
+		];
+		$typCbs = '';
 		foreach ($verfTypen as $t) {
-			$ts2 = htmlspecialchars($t);
-			$sel = in_array($t, $aktiveTypen, true) ? ' selected' : '';
-			$typOpts .= '<option value="' . $ts2 . '"' . $sel . '>' . $ts2 . '</option>';
+			$ts2    = htmlspecialchars($t);
+			$aktiv  = in_array($t, $aktiveTypen, true);
+			$farbe  = $typFarben[strtoupper($t)] ?? '#aaa';
+			$cbId   = 'typ-cb-' . preg_replace('/[^a-z0-9]/i', '', $t);
+			$chk    = $aktiv ? ' checked' : '';
+			$bg     = $aktiv ? 'background:' . $farbe . '22;border-color:' . $farbe . '88;' : '';
+			$typCbs .= '<label id="lbl-' . $cbId . '" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;'
+				. 'padding:3px 8px;border-radius:4px;border:1px solid #3a3a3a;' . $bg . '">'
+				. '<input type="checkbox" name="ft[]" value="' . $ts2 . '" id="' . $cbId . '"' . $chk
+				. ' style="accent-color:' . $farbe . ';cursor:pointer" onchange="submitTypFilter()">'
+				. '<span style="color:' . $farbe . ';font-weight:bold;font-size:var(--fs,12px)">' . $ts2 . '</span>'
+				. '</label>';
 		}
 
 		$sndOpts = '<option value="">— Alle Sender —</option>';
@@ -693,7 +727,7 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			. '<form method="GET" action="' . $h . '"><input type="hidden" name="a" value="FilterAnwenden">'
 			. '<div class="bar2">'
 			.   '<div class="grp"><span class="lbl">Meldungstyp</span>'
-			.   '<select name="ft[]" multiple>' . $typOpts . '</select></div>'
+			.   '<div style="display:flex;flex-wrap:wrap;gap:5px;padding-top:2px">' . ($typCbs ?: '<span style="color:#555;font-size:var(--fs,12px)">Wird geladen…</span>') . '</div></div>'
 			.   '<div class="grp"><span class="lbl">Sender</span>'
 			.   '<select name="sf[]" multiple style="min-width:160px">' . $sndOpts . '</select></div>'
 			.   '<div class="grp"><span class="lbl">Text-Filter</span>'
@@ -755,6 +789,11 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			.   'if(show)h=h.filter(function(x){return x!==c;});'
 			.   'localStorage.setItem("la_hidden_v2",JSON.stringify(h));'
 			. '};'
+			. '// Typ-Filter Checkbox Auto-Submit'
+			. 'function submitTypFilter(){'
+			.   'var form=document.querySelector("form[action]");'
+			.   'if(form)form.submit();'
+			. '}'
 			. '// ObjektID Hover-Tooltip'
 			. 'var oidCache={};'
 			. 'document.addEventListener("mouseover",function(e){'

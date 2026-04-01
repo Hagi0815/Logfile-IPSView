@@ -1,6 +1,6 @@
 # Log Analyzer IPSView
 
-**Version:** 1.0 · **Autor:** Christian Hagedorn · **IPS-Kompatibilität:** 8.1+
+**Version:** 0.7.1 · **Autor:** Christian Hagedorn · **IPS-Kompatibilität:** 8.1+
 
 Ein vollständiger Log-Viewer für IP-Symcon, der direkt in einer HTML-Box oder im IPSView/WebFront angezeigt wird. Alle Interaktionen (Filter, Navigation, Export) laufen über einen WebHook – ohne Seitenneuladen der gesamten Oberfläche.
 
@@ -8,7 +8,7 @@ Ein vollständiger Log-Viewer für IP-Symcon, der direkt in einer HTML-Box oder 
 
 ## Installation
 
-1. Modul üner Modulcontrol installieren https://github.com/Hagi0815/Logfile-IPSView
+1. ZIP-Datei in IP-Symcon importieren: **Kerninstanzen → Instanz hinzufügen → Log Analyzer IPSView**
 2. In der Instanzkonfiguration die gewünschte Standard-Logdatei auswählen
 3. Den WebHook in IPS registrieren: **Skripte → WebHook Control → Neuer Hook**
    - Hook-Pfad: `/hook/LogAnalyzerIPSView_{InstanceID}`
@@ -166,7 +166,7 @@ IPS cached Attributwerte im selben PHP-Request. Beim Logdatei-Wechsel, Schriftgr
 
 ## Changelog
 
-### 1.0
+### 0.7.1
 - Schnellfilter per Klick auf Sender/Typ
 - ObjektID Hover-Tooltip (Name + Typ)
 - Direkte Seiten-Eingabe + Letzte-Seite-Button
@@ -174,6 +174,8 @@ IPS cached Attributwerte im selben PHP-Request. Beim Logdatei-Wechsel, Schriftgr
 - Suchbegriff-Highlighting in Meldung und Sender
 - Zeilennummern (#-Spalte)
 - Tastaturkürzel (R, ←/→, Pos1, Ende)
+
+### 0.7.0
 - Schriftgröße-Dropdown (skaliert gesamte Oberfläche)
 - Kompakt-Modus
 - Auto-Refresh / Live-Modus
@@ -181,6 +183,8 @@ IPS cached Attributwerte im selben PHP-Request. Beim Logdatei-Wechsel, Schriftgr
 - Meldungen aufklappbar
 - Spalten ein-/ausblenden
 - PDF- und CSV-Export
+
+### 0.6.x
 - Logdatei-Auswahl per Dropdown
 - Mehrseitiger Filter mit Badges
 - Paginierung mit Seite vor/zurück
