@@ -277,6 +277,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		$fehlerCount   = []; // meldung => count
 		$senderCount   = []; // sender => count
 		$stundenCount  = array_fill(0, 24, 0); // 0-23 => count (nur ERROR+WARNING)
+		$stundenMsgs   = array_fill(0, 24, []); // 0-23 => [meldung => count]
 		$typCount      = [];
 		$gesamt        = 0;
 		$heute         = date('Y-m-d');
@@ -298,6 +299,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 					if (preg_match('/(\d{2}):\d{2}:\d{2}/', $zeit, $m)) {
 						$stunde = (int)$m[1];
 						$stundenCount[$stunde]++;
+						$stundenMsgs[$stunde][$msg] = ($stundenMsgs[$stunde][$msg] ?? 0) + 1;
 					}
 				}
 			}
@@ -315,19 +317,36 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		$maxSender  = $topSender ? max($topSender) : 1;
 
 		// Stunden-Chart (SVG)
-		$svgW = 600; $svgH = 120; $barW = (int)($svgW / 24);
+		$svgW = 600; $svgH = 130; $barW = (int)($svgW / 24);
 		$svgBars = '';
+		// Tooltip-Overlay (versteckt, wird per JS positioniert)
+		$svgBars .= '<g id="stunden-tip" style="display:none" pointer-events="none">'
+			. '<rect id="stunden-tip-bg" rx="3" fill="#333" stroke="#555" stroke-width="1"/>'
+			. '<text id="stunden-tip-h" font-size="9" font-weight="bold" fill="#ffd080"></text>'
+			. '<text id="stunden-tip-c" font-size="8" fill="#aaa"></text>'
+			. '<text id="stunden-tip-m" font-size="7" fill="#ccc"></text>'
+			. '</g>';
 		for ($i = 0; $i < 24; $i++) {
 			$v = $stundenCount[$i];
 			$bh = $v > 0 ? max(2, (int)round($v / $maxStunden * 90)) : 0;
 			$x = $i * $barW + 1;
-			$y = $svgH - $bh - 20;
+			$y = $svgH - $bh - 22;
 			$farbe = $v > $maxStunden * 0.7 ? '#f66' : ($v > $maxStunden * 0.3 ? '#fa0' : '#5a9');
-			if ($bh > 0) $svgBars .= '<rect x="' . $x . '" y="' . $y . '" width="' . ($barW-2) . '" height="' . $bh . '" fill="' . $farbe . '" rx="2"/>';
+			// Häufigste Meldung dieser Stunde ermitteln
+			$topMsg = '';
+			if (!empty($stundenMsgs[$i])) {
+				arsort($stundenMsgs[$i]);
+				$topMsg = array_key_first($stundenMsgs[$i]);
+				if (strlen($topMsg) > 60) $topMsg = substr($topMsg, 0, 60) . '…';
+			}
+			$tipData = htmlspecialchars(json_encode(['h' => sprintf('%02d:00', $i), 'c' => $v, 'm' => $topMsg]), ENT_QUOTES);
+			// Transparentes Hover-Rect über ganzer Balkenbreite
+			$svgBars .= '<rect x="' . $x . '" y="0" width="' . ($barW-2) . '" height="' . ($svgH-18) . '" fill="transparent" data-tip="' . $tipData . '" class="sh" cursor="pointer"/>';
+			if ($bh > 0) $svgBars .= '<rect x="' . $x . '" y="' . $y . '" width="' . ($barW-2) . '" height="' . $bh . '" fill="' . $farbe . '" rx="2" pointer-events="none"/>';
 			$lbl = sprintf('%02d', $i);
 			$lx = $x + (int)($barW/2) - 5;
-			$svgBars .= '<text x="' . $lx . '" y="' . ($svgH-4) . '" font-size="8" fill="#666">' . $lbl . '</text>';
-			if ($v > 0) $svgBars .= '<text x="' . $lx . '" y="' . ($y-3) . '" font-size="7" fill="#aaa">' . $v . '</text>';
+			$svgBars .= '<text x="' . $lx . '" y="' . ($svgH-6) . '" font-size="8" fill="#555" pointer-events="none">' . $lbl . '</text>';
+			if ($v > 0) $svgBars .= '<text x="' . $lx . '" y="' . ($y-3) . '" font-size="7" fill="#aaa" pointer-events="none">' . $v . '</text>';
 		}
 
 		// Top-Fehler Tabelle
@@ -409,6 +428,42 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			. '<div class="card"><h3>&#127381; Typ-Verteilung</h3><table>' . $typRows . '</table></div>'
 			. '</div>'
 			. '</div>'
+			. '<script>'
+			. '(function(){'
+			. 'var tip=document.getElementById("stunden-tip");'
+			. 'var tipBg=document.getElementById("stunden-tip-bg");'
+			. 'var tipH=document.getElementById("stunden-tip-h");'
+			. 'var tipC=document.getElementById("stunden-tip-c");'
+			. 'var tipM=document.getElementById("stunden-tip-m");'
+			. 'if(!tip)return;'
+			. 'document.querySelectorAll(".sh").forEach(function(r){'
+			.   'r.addEventListener("mouseenter",function(e){'
+			.     'var d=JSON.parse(r.getAttribute("data-tip")||"{}"||"{}" );'
+			.     'if(!d.c){tip.style.display="none";return;}'
+			.     'tipH.textContent=d.h+" Uhr";'
+			.     'tipC.textContent=d.c+" Fehler/Warnings";'
+			.     'tipM.textContent=d.m||"";'
+			.     'var svgRect=r.ownerSVGElement.getBoundingClientRect();'
+			.     'var rx=parseFloat(r.getAttribute("x"));'
+			.     'var rw=parseFloat(r.getAttribute("width"));'
+			.     'var svgW=r.ownerSVGElement.viewBox.baseVal.width;'
+			.     'var svgElW=svgRect.width;'
+			.     'var scale=svgElW/svgW;'
+			.     'var tx=rx+rw/2;'
+			.     'var tw=Math.max(d.m?d.m.length*4+20:80,80);'
+			.     'var th=d.m?42:28;'
+			.     'if(tx+tw>svgW)tx=tx-tw;'
+			.     'tipBg.setAttribute("x",tx);tipBg.setAttribute("y",2);'
+			.     'tipBg.setAttribute("width",tw);tipBg.setAttribute("height",th);'
+			.     'tipH.setAttribute("x",tx+4);tipH.setAttribute("y",14);'
+			.     'tipC.setAttribute("x",tx+4);tipC.setAttribute("y",24);'
+			.     'tipM.setAttribute("x",tx+4);tipM.setAttribute("y",34);'
+			.     'tip.style.display="";'
+			.   '});'
+			.   'r.addEventListener("mouseleave",function(){tip.style.display="none";});'
+			. '});'
+			. '})();'
+			. '</script>'
 			. '</body></html>';
 	}
 
