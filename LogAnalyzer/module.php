@@ -307,7 +307,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		}
 
 		// Tooltip ans Ende - damit er über den Balken liegt
-		$svgBars .= '<g id="stunden-tip" style="display:none" pointer-events="none">'
+		$svgBars .= '<g id="stunden-tip" visibility="hidden" pointer-events="none">'
 			. '<rect id="stunden-tip-bg" rx="3" fill="#2a2a2a" stroke="#555" stroke-width="1"/>'
 			. '<text id="stunden-tip-h" font-size="10" font-weight="bold" fill="#ffd080"></text>'
 			. '<text id="stunden-tip-c" font-size="9" fill="#ccc"></text>'
@@ -441,7 +441,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			. 'document.querySelectorAll(".sh").forEach(function(r){'
 			.   'r.addEventListener("mouseenter",function(){'
 			.     'var d=JSON.parse(r.getAttribute("data-tip")||"{}" );'
-			.     'if(!d.c){tip.style.display="none";return;}'
+			.     'if(d.c===undefined){tip.setAttribute("visibility","hidden");return;}'
 			.     'tipH.textContent=d.h+" Uhr – "+d.c+" Fehler/Warnings";'
 			.     'tipM.textContent=d.m||"";'
 			.     'tipC.textContent="";'
@@ -459,9 +459,9 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			.     'tipBg.setAttribute("width",tw);tipBg.setAttribute("height",th);'
 			.     'tipH.setAttribute("x",tx+6);tipH.setAttribute("y",ty+13);'
 			.     'tipM.setAttribute("x",tx+6);tipM.setAttribute("y",ty+26);'
-			.     'tip.style.display="";'
+			.     'tip.setAttribute("visibility","visible");'
 			.   '});'
-			.   'r.addEventListener("mouseleave",function(){tip.style.display="none";});'
+			.   'r.addEventListener("mouseleave",function(){tip.setAttribute("visibility","hidden");});'
 			. '});'
 			. '})();'
 			. '</script>'
