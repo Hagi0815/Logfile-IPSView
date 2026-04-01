@@ -690,7 +690,6 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			? '<meta http-equiv="refresh" content="' . $autoRefreshSek . '">'
 			: '';
 		return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">' . $refreshMeta . '<style>' . $css . $cssVar . '</style></head><body>'
-			. '<form id="filter-form" method="GET" action="' . $h . '"><input type="hidden" name="a" value="FilterAnwenden">'
 			. '<div class="bar">'
 			.   '<div class="grp"><span class="lbl">Logdatei</span>'
 			.   '<form method="GET" action="' . $h . '" style="display:contents">'
@@ -733,6 +732,7 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			.   (($letzteSeite > 0 || $hatWeitere) ? '<a class="btn"' . ($letzteSeite > 0 && $seite >= $letzteSeite ? ' disabled' : '') . ' href="' . $h . '?a=LetzteSeite" title="Älteste">&#8677;</a>' : '')
 			.   '<a class="btn" href="' . $h . '?a=Aktualisieren" title="Aktualisieren (R)">&#8635;</a>'
 			. '</div>'
+			. '<form id="filter-form" method="GET" action="' . $h . '"><input type="hidden" name="a" value="FilterAnwenden">'
 			. '<div class="bar2">'
 			.   '<div class="grp"><span class="lbl">Typ</span>'
 			.   '<div style="display:flex;flex-wrap:wrap;gap:4px;padding-top:2px">'
