@@ -369,13 +369,9 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 	{
 		$treffer = (int)($status['trefferGesamt'] ?? -1);
 		if ($treffer >= 0) return $treffer;
-		// trefferGesamt unbekannt – direkt zählen
+		// trefferGesamt unbekannt – echte Zählung durchführen
 		try {
-			$statusZaehlung = $status;
-			$statusZaehlung['seite'] = 0;
-			$statusZaehlung['maxZeilen'] = 99999;
-			$result = $this->ladeLogZeilen($statusZaehlung);
-			return count($result['zeilen'] ?? []);
+			return $this->zaehleGefilterteZeilen($status);
 		} catch (\Throwable $e) {
 			return 0;
 		}
