@@ -222,7 +222,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				$this->schreibeStatus($status);
 			} elseif ($aktion === 'LetzteSeite') {
 				$status = $this->leseStatus();
-				$treffer = (int)($status['trefferGesamt'] ?? -1);
+				$treffer = $this->ermittleTrefferFuerLetzteSeitenBerechnung($status);
 				$mz = $this->normalisiereMaxZeilen((int)($status['maxZeilen'] ?? 50));
 				$status['seite'] = ($treffer > 0 && $mz > 0) ? max(0, (int)ceil($treffer/$mz)-1) : 0;
 				$this->schreibeStatus($status);
@@ -363,6 +363,22 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			]) . "\n";
 		}
 		return $out;
+	}
+
+	private function ermittleTrefferFuerLetzteSeitenBerechnung(array $status): int
+	{
+		$treffer = (int)($status['trefferGesamt'] ?? -1);
+		if ($treffer >= 0) return $treffer;
+		// trefferGesamt unbekannt – direkt zählen
+		try {
+			$statusZaehlung = $status;
+			$statusZaehlung['seite'] = 0;
+			$statusZaehlung['maxZeilen'] = 99999;
+			$result = $this->ladeLogZeilen($statusZaehlung);
+			return count($result['zeilen'] ?? []);
+		} catch (\Throwable $e) {
+			return 0;
+		}
 	}
 
 	private function ladeZeilenFuerExport(string $scope): array
@@ -972,7 +988,7 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 					return;
 
 				case 'LetzteSeite':
-					$treffer = (int)($status['trefferGesamt'] ?? -1);
+					$treffer = $this->ermittleTrefferFuerLetzteSeitenBerechnung($status);
 					$mz = $this->normalisiereMaxZeilen((int)($status['maxZeilen'] ?? 50));
 					$letzte = ($treffer > 0 && $mz > 0) ? max(0, (int)ceil($treffer / $mz) - 1) : 0;
 					$status['seite'] = $letzte;
