@@ -749,6 +749,7 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			.   '<a class="btn btn-r" href="' . $h . '?a=FilterReset">&#10005; Reset</a>'
 			.   '</div>'
 			. '</div>'
+			. '</form>'
 			. '<div class="bar2" style="align-items:flex-start">'
 			.   '<div class="grp" style="flex:1"><span class="lbl">Typ</span>'
 			.   '<div style="display:flex;flex-wrap:wrap;gap:4px;padding-top:2px">'
@@ -762,7 +763,7 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="4" checked onchange="toggleSpalte(this)"> Sender</label>'
 			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="5" checked onchange="toggleSpalte(this)"> Meldung</label>'
 			.   '</div></div>'
-			. '</div></form>'
+			. '</div>'
 			.   '<div class="meta">'
 			. '<span>&#128196; <b style="color:#ccc">' . $logDateiBn . '</b>&nbsp;' . $dateiGroesse . '</span>'
 			. (function() use ($daten) {
