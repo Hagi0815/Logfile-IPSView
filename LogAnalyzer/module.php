@@ -766,6 +766,7 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			. '<span style="margin-left:auto">Stand:&nbsp;' . $ts . '</span>'
 			. '</div>'
 			. '<div class="meta">' . $fb . '</div>'
+			. '<div class="tbl-wrap"><table>'
 			. '<thead><tr>'
 			. '<th style="width:36px">#</th>'
 			. '<th style="width:140px">Zeit</th><th style="width:70px">ObjektID</th>'
