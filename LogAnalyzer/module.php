@@ -1,4 +1,16 @@
 <?php
+/**
+ * NEUSTART des Moduls: MC_ReloadModule(59139, "LogAnalyzer");
+ * sudo /etc/init.d/symcon start
+ * sudo /etc/init.d/symcon stop
+ * sudo /etc/init.d/symcon restart
+ *
+ * ToDo:
+ * - Ultra Version einbauen
+ * - CSV Export neu implementieren
+ * - DarkLight Abruf vom Tile ausgehend
+ * - Ladezeit Filter 0ms, wenn nicht notwendig zum Laden, bei Modi System
+*/
 
 declare(strict_types=1);
 require_once __DIR__ . '/libs/LogAnalyzerStandardTrait.php';
@@ -17,6 +29,13 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 
     /**
      * Create
+     *
+     * Wird beim Erstellen der Modulinstanz aufgerufen.
+     * - Registriert Eigenschaften, Attribute und Timer
+     * - Initialisiert Standardwerte für Status und Cache
+     *
+     * Parameter: keine
+     * Rückgabewert: void
      */
 	public function Create(): void
 	{
@@ -161,6 +180,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 	{
 		$logDateiOverride = null;
 		$schriftgroesseOverride = null;
+		$autoRefreshOverride = null;
 		try {
 			if ($aktion === 'LogDateiAuswaehlen') {
 				$datei = trim($wert);
@@ -203,7 +223,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				$this->schreibeStatus($status);
 			} elseif ($aktion === 'LetzteSeite') {
 				$status = $this->leseStatus();
-				$treffer = (int)($status['trefferGesamt'] ?? -1);
+				$treffer = $this->ermittleTrefferFuerLetzteSeitenBerechnung($status);
 				$mz = $this->normalisiereMaxZeilen((int)($status['maxZeilen'] ?? 50));
 				$status['seite'] = ($treffer > 0 && $mz > 0) ? max(0, (int)ceil($treffer/$mz)-1) : 0;
 				$this->schreibeStatus($status);
@@ -225,23 +245,19 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				$status['trefferGesamt'] = -1;
 				$this->schreibeStatus($status);
 				$this->leereSeitenCache();
-			} elseif ($aktion === 'SetzeKompakt') {
-				$k = ($wert === '1');
-				$status = $this->leseStatus();
-				$status['kompakt'] = $k;
-				$this->schreibeStatus($status);
 			} elseif ($aktion === 'SetzeAutoRefresh') {
 				$sek = max(0, (int) $wert);
 				$status = $this->leseStatus();
 				$status['autoRefreshSek'] = $sek;
 				$this->schreibeStatus($status);
+				$autoRefreshOverride = $sek;
 			} elseif ($aktion !== '') {
 				$this->RequestAction($aktion, $wert);
 			}
 		} catch (\Throwable $e) {
 			$this->SendDebug('VerarbeiteHookAktion', 'Fehler: ' . $e->getMessage(), 0);
 		}
-		return $this->erstelleHtmlMitLogDatei($logDateiOverride, $schriftgroesseOverride);
+		return $this->erstelleHtmlMitLogDatei($logDateiOverride, $schriftgroesseOverride, $autoRefreshOverride);
 	}
 
 	public function ErstelleHtmlDirekt(): string
@@ -346,6 +362,18 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		return $out;
 	}
 
+	private function ermittleTrefferFuerLetzteSeitenBerechnung(array $status): int
+	{
+		$treffer = (int)($status['trefferGesamt'] ?? -1);
+		if ($treffer >= 0) return $treffer;
+		// trefferGesamt unbekannt – echte Zählung durchführen
+		try {
+			return $this->zaehleGefilterteZeilen($status);
+		} catch (\Throwable $e) {
+			return 0;
+		}
+	}
+
 	private function ladeZeilenFuerExport(string $scope): array
 	{
 		$status = $this->leseStatus();
@@ -415,13 +443,16 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		return $zaehler;
 	}
 
-	private function erstelleHtmlMitLogDatei(?string $logDateiOverride, ?int $schriftgroesseOverride = null): string
+	private function erstelleHtmlMitLogDatei(?string $logDateiOverride, ?int $schriftgroesseOverride = null, ?int $autoRefreshOverride = null): string
 	{
 		try {
 			$daten = $this->erstelleVisualisierungsDaten($logDateiOverride);
 			$daten['status'] = $this->leseStatus();
 			if ($schriftgroesseOverride !== null) {
 				$daten['status']['schriftgroesse'] = $schriftgroesseOverride;
+			}
+			if ($autoRefreshOverride !== null) {
+				$daten['status']['autoRefreshSek'] = $autoRefreshOverride;
 			}
 			return $this->erstelleHtmlFuerIPSView($daten);
 		} catch (\Throwable $e) {
@@ -485,7 +516,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		$seiteAnz    = $seite + 1;
 		$letzteSeite = ($treffer > 0 && $maxZeilen > 0) ? max(0, (int)ceil($treffer / $maxZeilen) - 1) : -1;
 		$schriftgroesse = max(8, min(20, (int)($status['schriftgroesse'] ?? 12)));
-		$kompakt        = (bool)($status['kompakt'] ?? false);
 		$autoRefreshSek = max(0, (int)($status['autoRefreshSek'] ?? 0));
 		$zeitVon        = (string)($status['zeitVon'] ?? '');
 		$zeitBis        = (string)($status['zeitBis'] ?? '');
@@ -523,18 +553,41 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			$modusOpts .= '<option value="' . $val . '"' . $sel . '>' . $lbl . '</option>';
 		}
 
-		$typOpts = '<option value="">— Alle Typen —</option>';
+		// Farbzuordnung für Checkbox-Leiste
+		$typFarben = [
+			'DEBUG'   => '#7ecfff', 'INFO'    => '#aaffaa', 'WARNING' => '#ffd080',
+			'ERROR'   => '#ff7070', 'FATAL'   => '#ff4444', 'NOTIFY'  => '#d0aaff',
+			'SUCCESS' => '#88ffcc', 'MESSAGE' => '#cccccc', 'CUSTOM'  => '#ffcc88',
+		];
+		$typCbs = '';
 		foreach ($verfTypen as $t) {
-			$ts2 = htmlspecialchars($t);
-			$sel = in_array($t, $aktiveTypen, true) ? ' selected' : '';
-			$typOpts .= '<option value="' . $ts2 . '"' . $sel . '>' . $ts2 . '</option>';
+			$ts2    = htmlspecialchars($t);
+			$aktiv  = in_array($t, $aktiveTypen, true);
+			$farbe  = $typFarben[strtoupper($t)] ?? '#aaa';
+			$cbId   = 'typ-cb-' . preg_replace('/[^a-z0-9]/i', '', $t);
+			$chk    = $aktiv ? ' checked' : '';
+			$bg     = $aktiv ? 'background:' . $farbe . '22;border-color:' . $farbe . '88;' : '';
+			$typCbs .= '<label id="lbl-' . $cbId . '" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;'
+				. 'padding:3px 8px;border-radius:4px;border:1px solid #3a3a3a;' . $bg . '">'
+				. '<input type="checkbox" name="ft[]" value="' . $ts2 . '" id="' . $cbId . '"' . $chk
+				. ' class="typ-cb" style="accent-color:' . $farbe . ';cursor:pointer" onchange="submitTypFilter()">'
+				. '<span style="color:' . $farbe . ';font-weight:bold;font-size:var(--fs,12px)">' . $ts2 . '</span>'
+				. '</label>';
 		}
 
-		$sndOpts = '<option value="">— Alle Sender —</option>';
+		$sndCbs = '';
 		foreach ($verfSender as $s) {
-			$ss2 = htmlspecialchars($s);
-			$sel = in_array($s, $aktiveSender, true) ? ' selected' : '';
-			$sndOpts .= '<option value="' . $ss2 . '"' . $sel . '>' . $ss2 . '</option>';
+			$ss2   = htmlspecialchars($s);
+			$aktiv = in_array($s, $aktiveSender, true);
+			$chk   = $aktiv ? ' checked' : '';
+			$cbId  = 'snd-cb-' . preg_replace('/[^a-z0-9]/i', '', $s);
+			$bg    = $aktiv ? 'background:#2a3a2a;border-color:#4a7a4a;' : '';
+			$sndCbs .= '<label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;'
+				. 'padding:2px 7px;border-radius:4px;border:1px solid #3a3a3a;' . $bg . '">'
+				. '<input type="checkbox" name="sf[]" value="' . $ss2 . '" id="' . $cbId . '"' . $chk
+				. ' class="snd-cb" style="accent-color:#6a6;cursor:pointer" onchange="submitTypFilter()">'
+				. '<span style="font-size:var(--fs,12px);color:#aaa">' . $ss2 . '</span>'
+				. '</label>';
 		}
 
 		$fb = '';
@@ -552,7 +605,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		$typF = ['DEBUG'=>'#7ecfff','INFO'=>'#aaffaa','WARNING'=>'#ffd080','ERROR'=>'#ff7070',
 				 'FATAL'=>'#ff4444','NOTIFY'=>'#d0aaff','SUCCESS'=>'#88ffcc','MESSAGE'=>'#cccccc','CUSTOM'=>'#ffcc88'];
 		$tbody = '';
-		$tbodyKl = $kompakt ? ' class="kompakt"' : '';
 		$znr = $seite * $maxZeilen + 1; // Startnummer für diese Seite
 		if (empty($zeilen)) {
 			$tbody = '<tr><td colspan="6" class="empty">Keine Eintr&auml;ge gefunden.</td></tr>';
@@ -582,10 +634,17 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				// Schnellfilter: Klick auf Typ/Sender filtert sofort
 				$typLink = '<a href="' . $h . '?a=Schnellfilter&ft=' . urlencode($typRaw) . '" style="color:' . $fc . ';text-decoration:none" title="Nach diesem Typ filtern">' . $typ . '</a>';
 				$sndLink = '<a href="' . $h . '?a=Schnellfilter&sf=' . urlencode($sndRaw) . '" style="color:inherit;text-decoration:none" title="Nach diesem Sender filtern">' . $snd . '</a>';
-				// ObjektID mit Hover-Tooltip
-				$oidCell = ($oidRaw !== '' && $oidRaw !== '00000' && (int)$oidRaw > 0)
-					? '<span class="oid-hover" data-oid="' . $oidRaw . '" style="cursor:help">' . $oidRaw . '</span>'
-					: $oidRaw;
+				// ObjektID mit Name
+				$oidInt = (int)$oidRaw;
+				if ($oidInt > 0 && $oidRaw !== '00000' && IPS_ObjectExists($oidInt)) {
+					$oidName = htmlspecialchars(IPS_GetName($oidInt));
+					$oidCell = '<span class="oid-hover" data-oid="' . $oidRaw . '">'
+						. '<span style="color:#666">' . $oidRaw . '</span>'
+						. '<br><span style="color:#aaa;font-size:calc(var(--fs,12px) - 1px)">' . $oidName . '</span>'
+						. '</span>';
+				} else {
+					$oidCell = $oidRaw;
+				}
 				$tbody .= '<tr>'
 					. '<td class="cz" style="color:#444;min-width:30px;text-align:right">' . $znr++ . '</td>'
 					. '<td class="cz">' . $zeit . '</td>'
@@ -606,7 +665,7 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:var(--fs,12px);background:
 .lbl{font-size:calc(var(--fs,12px) - 2px);color:#777;text-transform:uppercase;letter-spacing:.4px}
 select{background:#2a2a2a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:4px 7px;font-size:var(--fs,12px)}
 select:focus{outline:none;border-color:#666}
-select[multiple]{min-height:80px;max-height:120px}
+select[multiple]{min-height:unset}
 input[type=text]{background:#2a2a2a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:5px 8px;font-size:var(--fs,12px)}
 input[type=text]:focus{outline:none;border-color:#666}
 .btn{display:inline-block;background:#2a2a2a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:5px 12px;font-size:var(--fs,12px);text-decoration:none;cursor:pointer;white-space:nowrap}
@@ -630,8 +689,6 @@ tbody tr:nth-child(even){background:#1e1e1e}tbody tr:hover{background:#252525}
 mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 .oid-hover{position:relative}
 .oid-tip{position:absolute;left:0;top:100%;z-index:99;background:#333;color:#ddd;border:1px solid #555;border-radius:4px;padding:4px 8px;font-size:11px;white-space:nowrap;pointer-events:none;margin-top:2px}
-.kompakt .cz,.kompakt .co,.kompakt .ct,.kompakt .cs,.kompakt .cm{padding:1px 6px}
-.kompakt thead th{padding:3px 6px}
 .cm-kurz{max-width:600px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
 .cm-voll{word-break:break-word;white-space:pre-wrap;cursor:pointer;background:#222;padding:4px 8px}
 .col-hidden{display:none}
@@ -646,75 +703,59 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 		return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">' . $refreshMeta . '<style>' . $css . $cssVar . '</style></head><body>'
 			. '<div class="bar">'
 			.   '<div class="grp"><span class="lbl">Logdatei</span>'
-			.   '<form method="GET" action="' . $h . '" style="display:contents">'
-			.   '<input type="hidden" name="a" value="LogDateiAuswaehlen">'
-			.   '<select name="v" onchange="this.form.submit()" style="max-width:260px">' . $logOpts . '</select></form></div>'
+			.   '<select onchange="location.href=\'' . $h . '?a=LogDateiAuswaehlen&v=\'+encodeURIComponent(this.value)" style="max-width:200px">' . $logOpts . '</select></div>'
 			.   '<div class="grp"><span class="lbl">Zeilen</span>'
-			.   '<form method="GET" action="' . $h . '" style="display:contents">'
-			.   '<input type="hidden" name="a" value="SetzeMaxZeilen">'
-			.   '<select name="v" onchange="this.form.submit()">' . $zeilenOpts . '</select></form></div>'
+			.   '<select onchange="location.href=\'' . $h . '?a=SetzeMaxZeilen&v=\'+this.value">' . $zeilenOpts . '</select></div>'
 			.   '<div class="grp"><span class="lbl">Modus</span>'
-			.   '<form method="GET" action="' . $h . '" style="display:contents">'
-			.   '<input type="hidden" name="a" value="SetzeBetriebsmodus">'
-			.   '<select name="v" onchange="this.form.submit()">' . $modusOpts . '</select></form></div>'
+			.   '<select onchange="location.href=\'' . $h . '?a=SetzeBetriebsmodus&v=\'+this.value">' . $modusOpts . '</select></div>'
 			.   '<div class="grp"><span class="lbl">Schrift</span>'
-			.   '<form method="GET" action="' . $h . '" style="display:contents">'
-			.   '<input type="hidden" name="a" value="SetzeSchriftgroesse">'
-			.   '<select name="v" onchange="this.form.submit()">' . $schriftOpts . '</select></form></div>'
-			.   '<span style="flex:1"></span>'
-			.   '<a class="btn"' . ($seite <= 0 ? ' disabled' : '') . ' href="' . $h . '?a=ErsteSeite" title="Zur neuesten Seite (Pos1)">&#8676;</a>'
-			.   '<a class="btn"' . $disN . ' href="' . $h . '?a=SeiteZurueck" title="Neuere (←)">&#8249; Neuere</a>'
-			.   '<form method="GET" action="' . $h . '" style="display:contents">'
-			.   '<input type="hidden" name="a" value="SprungSeite">'
-			.   '<input type="number" name="v" value="' . $seiteAnz . '" min="1"'
-			.   ($treffer > 0 ? ' max="' . ($letzteSeite+1) . '"' : '')
-			.   ' style="width:52px;text-align:center;background:#2a2a2a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:4px 6px;font-size:var(--fs,12px)"'
-			.   ' title="Seite eingeben + Enter" onchange="this.form.submit()"></form>'
-			.   '<span class="mu" style="align-self:center">'
-			.   ($treffer > 0 ? '/ ' . ($letzteSeite+1) : '') . '</span>'
-			.   '<a class="btn"' . $disA . ' href="' . $h . '?a=SeiteVor" title="Ältere (→)">Ältere&nbsp;&#8250;</a>'
-			.   ($letzteSeite > 0 ? '<a class="btn"' . ($seite >= $letzteSeite ? ' disabled' : '') . ' href="' . $h . '?a=LetzteSeite" title="Zur ältesten Seite (Ende)">&#8677;</a>' : '')
-			.   '<a class="btn" href="' . $h . '?a=Aktualisieren" title="Aktualisieren (R)">&#8635;</a>'
-			.   '<div class="grp"><span class="lbl">Ansicht</span><div style="display:flex;gap:4px">'
-			.   '<a class="btn' . ($kompakt ? ' btn-p' : '') . '" href="' . $h . '?a=SetzeKompakt&v=' . ($kompakt?'0':'1') . '">&#8801; Kompakt</a>'
-			.   '</div></div>'
+			.   '<select onchange="location.href=\'' . $h . '?a=SetzeSchriftgroesse&v=\'+this.value">' . $schriftOpts . '</select></div>'
 			.   '<div class="grp"><span class="lbl">Live</span>'
-			.   '<form method="GET" action="' . $h . '" style="display:contents">'
-			.   '<input type="hidden" name="a" value="SetzeAutoRefresh">'
-			.   '<select name="v" onchange="this.form.submit()">' . $refreshOpts . '</select></form></div>'
-			.   '<span style="width:1px;background:#3a3a3a;align-self:stretch;margin:0 4px"></span>'
-			.   '<div class="grp"><span class="lbl">Export</span><div style="display:flex;gap:4px">'
-			.   '<a class="btn" title="PDF aktuelle Seite" href="' . $h . '?a=ExportPdf&amp;scope=seite" target="_blank">&#128196; PDF</a>'
-			.   '<a class="btn" title="PDF alle Treffer" href="' . $h . '?a=ExportPdf&amp;scope=alle" target="_blank">&#128196; PDF Alle</a>'
-			.   '<a class="btn" title="CSV aktuelle Seite" href="' . $h . '?a=ExportCsv&amp;scope=seite">&#128190; CSV</a>'
-			.   '<a class="btn" title="CSV alle Treffer" href="' . $h . '?a=ExportCsv&amp;scope=alle">&#128190; CSV Alle</a>'
+			.   '<select onchange="location.href=\'' . $h . '?a=SetzeAutoRefresh&v=\'+this.value">' . $refreshOpts . '</select></div>'
+			.   '<span style="width:1px;background:#333;align-self:stretch;margin:0 2px"></span>'
+			.   '<span style="width:1px;background:#333;align-self:stretch;margin:0 2px"></span>'
+			.   '<a class="btn" href="' . $h . '?a=ExportPdf&amp;scope=seite" target="_blank">&#128196; PDF</a>'
+			.   '<a class="btn" href="' . $h . '?a=ExportPdf&amp;scope=alle" target="_blank">&#128196; PDF Alle</a>'
+			.   '<a class="btn" href="' . $h . '?a=ExportCsv&amp;scope=seite">&#128190; CSV</a>'
+			.   '<a class="btn" href="' . $h . '?a=ExportCsv&amp;scope=alle">&#128190; CSV Alle</a>'
+			.   '<span style="flex:1"></span>'
+			.   '<a class="btn"' . ($seite <= 0 ? ' disabled' : '') . ' href="' . $h . '?a=ErsteSeite" title="Neueste">&#8676;</a>'
+			.   '<a class="btn"' . $disN . ' href="' . $h . '?a=SeiteZurueck" title="Neuere">&#8249;</a>'
+			.   '<input type="number" value="' . $seiteAnz . '" min="1"'
+			.   ($treffer > 0 ? ' max="' . ($letzteSeite+1) . '"' : '')
+			.   ' style="width:46px;text-align:center;background:#2a2a2a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:3px 4px;font-size:var(--fs,12px)"'
+			.   ' onchange="location.href=\'' . $h . '?a=SprungSeite&v=\'+this.value">'
+			.   '<span class="mu" style="align-self:center">' . ($treffer > 0 ? '/' . ($letzteSeite+1) : '') . '</span>'
+			.   '<a class="btn"' . $disA . ' href="' . $h . '?a=SeiteVor" title="Ältere">&#8250;</a>'
+			.   (($letzteSeite > 0 || $hatWeitere) ? '<a class="btn"' . ($letzteSeite > 0 && $seite >= $letzteSeite ? ' disabled' : '') . ' href="' . $h . '?a=LetzteSeite" title="Älteste">&#8677;</a>' : '')
+			.   '<a class="btn" href="' . $h . '?a=Aktualisieren" title="Aktualisieren (R)">&#8635;</a>'
+			. '</div>'
+			. '<form id="filter-form" method="GET" action="' . $h . '" onsubmit="return doFilter(event);"><input type="hidden" name="a" value="FilterAnwenden">'
+			. '<div class="bar2">'
+			.   '<div class="grp" style="flex:1"><span class="lbl">Sender</span>'
+			.   '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:3px 8px;padding-top:3px">'
+			.   ($sndCbs ?: '<span style="color:#555;font-size:var(--fs,12px)">...</span>')
+			.   '</div></div>'
+			.   '<div class="grp"><span class="lbl">Text</span>'
+			.   '<input type="text" name="tf" value="' . $textFilter . '" placeholder="Freitext..." style="width:120px"></div>'
+			.   '<div class="grp"><span class="lbl">ObjID</span>'
+			.   '<input type="text" name="oi" value="' . $objektFilter . '" placeholder="ObjektID..." style="width:80px"></div>'
+			.   '<div class="grp"><span class="lbl">Von</span>'
+			.   '<input type="text" name="zv" value="' . htmlspecialchars($zeitVon) . '" placeholder="2026-01-01" style="width:95px"></div>'
+			.   '<div class="grp"><span class="lbl">Bis</span>'
+			.   '<input type="text" name="zb" value="' . htmlspecialchars($zeitBis) . '" placeholder="2026-12-31" style="width:95px"></div>'
+			.   '<div class="grp" style="align-self:flex-end;flex-direction:row;gap:4px">'
+			.   '<button type="submit" class="btn btn-p">&#10003; Filter</button>'
+			.   '<a class="btn btn-r" href="' . $h . '?a=FilterReset">&#10005; Reset</a>'
+			.   '</div>'
+			. '</div>'
+			. '<div class="bar2" style="align-items:flex-start">'
+			.   '<div class="grp" style="flex:0 0 auto"><span class="lbl">Typ</span>'
+			.   '<div style="display:flex;flex-wrap:wrap;gap:3px 6px;padding-top:3px">'
+			.   ($typCbs ?: '<span style="color:#555;font-size:var(--fs,12px)">...</span>')
 			.   '</div></div>'
 			. '</div>'
-			. '<form method="GET" action="' . $h . '"><input type="hidden" name="a" value="FilterAnwenden">'
-			. '<div class="bar2">'
-			.   '<div class="grp"><span class="lbl">Meldungstyp</span>'
-			.   '<select name="ft[]" multiple>' . $typOpts . '</select></div>'
-			.   '<div class="grp"><span class="lbl">Sender</span>'
-			.   '<select name="sf[]" multiple style="min-width:160px">' . $sndOpts . '</select></div>'
-			.   '<div class="grp"><span class="lbl">Text-Filter</span>'
-			.   '<input type="text" name="tf" value="' . $textFilter . '" placeholder="Freitext..." style="width:140px">'
-			.   '<input type="text" name="oi" value="' . $objektFilter . '" placeholder="ObjektID..." style="width:120px;margin-top:4px"></div>'
-			.   '<div class="grp"><span class="lbl">Von</span>'
-			.   '<input type="text" name="zv" value="' . htmlspecialchars($zeitVon) . '" placeholder="2026-01-01 00:00" style="width:135px"></div>'
-			.   '<div class="grp"><span class="lbl">Bis</span>'
-			.   '<input type="text" name="zb" value="' . htmlspecialchars($zeitBis) . '" placeholder="2026-12-31 23:59" style="width:135px"></div>'
-			.   '<div class="grp" style="flex-direction:row;gap:6px;align-self:flex-end">'
-			.   '<button type="submit" class="btn btn-p">Filter anwenden</button>'
-			.   '<a class="btn btn-r" href="' . $h . '?a=FilterReset">&#10005; Reset</a></div>'
-			.   '<span style="flex:1"></span>'
-			.   '<div class="grp"><span class="lbl">Spalten</span><div style="display:flex;gap:8px;align-items:center">'
-			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="1" checked onchange="toggleSpalte(this)"> Zeit</label>'
-			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="2" checked onchange="toggleSpalte(this)"> ObjID</label>'
-			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="3" checked onchange="toggleSpalte(this)"> Typ</label>'
-			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="4" checked onchange="toggleSpalte(this)"> Sender</label>'
-			.   '<label style="font-size:var(--fs,12px);color:#aaa;cursor:pointer"><input type="checkbox" class="sp-cb" data-col="5" checked onchange="toggleSpalte(this)"> Meldung</label>'
-			.   '</div></div>'
-			. '</div></form>'
+			. '</form>'
 			.   '<div class="meta">'
 			. '<span>&#128196; <b style="color:#ccc">' . $logDateiBn . '</b>&nbsp;' . $dateiGroesse . '</span>'
 			. (function() use ($daten) {
@@ -730,7 +771,7 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			. '<span style="margin-left:auto">Stand:&nbsp;' . $ts . '</span>'
 			. '</div>'
 			. '<div class="meta">' . $fb . '</div>'
-			. '<div class="tbl-wrap"><table' . $tbodyKl . '>'
+			. '<div class="tbl-wrap"><table>'
 			. '<thead><tr>'
 			. '<th style="width:36px">#</th>'
 			. '<th style="width:140px">Zeit</th><th style="width:70px">ObjektID</th>'
@@ -738,24 +779,19 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			. '</tr></thead>'
 			. '<tbody>' . $tbody . '</tbody></table></div>'
 			. '<script>'
-			. '(function(){'
-			. 'var hidden=JSON.parse(localStorage.getItem("la_hidden_v2")||"[]");'
-			. 'function applyCol(c,show){'
-			.   'document.querySelectorAll("tr").forEach(function(r){var td=r.children[c];if(td){td.style.display=show?"":"none";}});'
+			. 'function buildFilterUrl(){'
+			.   'var h="' . $h . '",p="a=FilterAnwenden";'
+			.   'document.querySelectorAll("input.snd-cb:checked").forEach(function(cb){p+="&sf[]="+encodeURIComponent(cb.value);});'
+			.   'var tf=document.querySelector("#filter-form input[name=tf]");if(tf&&tf.value)p+="&tf="+encodeURIComponent(tf.value);'
+			.   'var oi=document.querySelector("#filter-form input[name=oi]");if(oi&&oi.value)p+="&oi="+encodeURIComponent(oi.value);'
+			.   'var zv=document.querySelector("#filter-form input[name=zv]");if(zv&&zv.value)p+="&zv="+encodeURIComponent(zv.value);'
+			.   'var zb=document.querySelector("#filter-form input[name=zb]");if(zb&&zb.value)p+="&zb="+encodeURIComponent(zb.value);'
+			.   'document.querySelectorAll("input.typ-cb:checked").forEach(function(cb){p+="&ft[]="+encodeURIComponent(cb.value);});'
+			.   'return h+"?"+p;'
 			. '}'
-			. 'document.querySelectorAll(".sp-cb").forEach(function(cb){'
-			.   'var c=parseInt(cb.dataset.col);'
-			.   'if(hidden.indexOf(c)>=0){cb.checked=false;applyCol(c,false);}'
-			. '});'
-			. 'window.toggleSpalte=function(cb){'
-			.   'var c=parseInt(cb.dataset.col),show=cb.checked;'
-			.   'applyCol(c,show);'
-			.   'var h=JSON.parse(localStorage.getItem("la_hidden_v2")||"[]");'
-			.   'if(!show&&h.indexOf(c)<0)h.push(c);'
-			.   'if(show)h=h.filter(function(x){return x!==c;});'
-			.   'localStorage.setItem("la_hidden_v2",JSON.stringify(h));'
-			. '};'
-			. '// ObjektID Hover-Tooltip'
+			. 'function submitTypFilter(){location.href=buildFilterUrl();}'
+			. 'function doFilter(e){if(e)e.preventDefault();location.href=buildFilterUrl();return false;}'
+			. '(function(){'
 			. 'var oidCache={};'
 			. 'document.addEventListener("mouseover",function(e){'
 			.   'var el=e.target.closest(".oid-hover");'
@@ -930,7 +966,7 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 					return;
 
 				case 'LetzteSeite':
-					$treffer = (int)($status['trefferGesamt'] ?? -1);
+					$treffer = $this->ermittleTrefferFuerLetzteSeitenBerechnung($status);
 					$mz = $this->normalisiereMaxZeilen((int)($status['maxZeilen'] ?? 50));
 					$letzte = ($treffer > 0 && $mz > 0) ? max(0, (int)ceil($treffer / $mz) - 1) : 0;
 					$status['seite'] = $letzte;
@@ -1096,7 +1132,6 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 					$this->aktualisiereVisualisierung();
 					return;
 
-				case 'SetzeKompakt':
 					$status['kompakt'] = $this->normalisiereKompakt($Value);
 					$this->schreibeStatus($status);
 					$this->aktualisiereVisualisierung();
@@ -2164,7 +2199,11 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			'zaehlSignatur'            => (string) ($daten['zaehlSignatur'] ?? ''),
 			'tabellenLadungLaeuft'     => (bool) ($daten['tabellenLadungLaeuft'] ?? false),
 			'tabellenLadungText'       => trim((string) ($daten['tabellenLadungText'] ?? '')),
-			'letzteTabellenLadezeitMs' => max(0, (int) ($daten['letzteTabellenLadezeitMs'] ?? 0))
+			'letzteTabellenLadezeitMs' => max(0, (int) ($daten['letzteTabellenLadezeitMs'] ?? 0)),
+			'schriftgroesse'           => max(8, min(20, (int) ($daten['schriftgroesse'] ?? 12))),
+			'autoRefreshSek'           => max(0, (int) ($daten['autoRefreshSek'] ?? 0)),
+			'zeitVon'                  => trim((string) ($daten['zeitVon'] ?? '')),
+			'zeitBis'                  => trim((string) ($daten['zeitBis'] ?? ''))
 		];
 	}
 
@@ -2198,7 +2237,11 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 				'zaehlSignatur'            => (string) ($status['zaehlSignatur'] ?? ''),
 				'tabellenLadungLaeuft'     => (bool) ($status['tabellenLadungLaeuft'] ?? false),
 				'tabellenLadungText'       => trim((string) ($status['tabellenLadungText'] ?? '')),
-				'letzteTabellenLadezeitMs' => max(0, (int) ($status['letzteTabellenLadezeitMs'] ?? 0))
+				'letzteTabellenLadezeitMs' => max(0, (int) ($status['letzteTabellenLadezeitMs'] ?? 0)),
+				'schriftgroesse'           => max(8, min(20, (int) ($status['schriftgroesse'] ?? 12))),
+				'autoRefreshSek'           => max(0, (int) ($status['autoRefreshSek'] ?? 0)),
+				'zeitVon'                  => trim((string) ($status['zeitVon'] ?? '')),
+				'zeitBis'                  => trim((string) ($status['zeitBis'] ?? ''))
 			], JSON_THROW_ON_ERROR)
 		);
 	}

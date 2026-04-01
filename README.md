@@ -1,6 +1,8 @@
 # Log Analyzer IPSView
 
+
 **Version:** 1.1 · **Autor:** Christian Hagedorn · **IPS-Kompatibilität:** 8.1+
+
 
 Ein vollständiger Log-Viewer für IP-Symcon, der direkt in einer HTML-Box oder im IPSView/WebFront angezeigt wird. Alle Interaktionen (Filter, Navigation, Export) laufen über einen WebHook – ohne Seitenneuladen der gesamten Oberfläche.
 
@@ -165,7 +167,7 @@ IPS cached Attributwerte im selben PHP-Request. Beim Logdatei-Wechsel, Schriftgr
 
 ## Changelog
 
-### 1.0
+### 0.7.1
 - Schnellfilter per Klick auf Sender/Typ
 - ObjektID Hover-Tooltip (Name + Typ)
 - Direkte Seiten-Eingabe + Letzte-Seite-Button
@@ -173,6 +175,8 @@ IPS cached Attributwerte im selben PHP-Request. Beim Logdatei-Wechsel, Schriftgr
 - Suchbegriff-Highlighting in Meldung und Sender
 - Zeilennummern (#-Spalte)
 - Tastaturkürzel (R, ←/→, Pos1, Ende)
+
+### 0.7.0
 - Schriftgröße-Dropdown (skaliert gesamte Oberfläche)
 - Kompakt-Modus
 - Auto-Refresh / Live-Modus
@@ -180,6 +184,8 @@ IPS cached Attributwerte im selben PHP-Request. Beim Logdatei-Wechsel, Schriftgr
 - Meldungen aufklappbar
 - Spalten ein-/ausblenden
 - PDF- und CSV-Export
+
+### 0.6.x
 - Logdatei-Auswahl per Dropdown
 - Mehrseitiger Filter mit Badges
 - Paginierung mit Seite vor/zurück
