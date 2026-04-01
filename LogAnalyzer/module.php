@@ -306,6 +306,14 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			fclose($handle);
 		}
 
+		// Tooltip ans Ende - damit er über den Balken liegt
+		$svgBars .= '<g id="stunden-tip" style="display:none" pointer-events="none">'
+			. '<rect id="stunden-tip-bg" rx="3" fill="#2a2a2a" stroke="#555" stroke-width="1"/>'
+			. '<text id="stunden-tip-h" font-size="10" font-weight="bold" fill="#ffd080"></text>'
+			. '<text id="stunden-tip-c" font-size="9" fill="#ccc"></text>'
+			. '<text id="stunden-tip-m" font-size="8" fill="#aaa"></text>'
+			. '</g>';
+
 		// Top-Fehler sortieren
 		arsort($fehlerCount);
 		$topFehler = array_slice($fehlerCount, 0, 20, true);
@@ -319,13 +327,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		// Stunden-Chart (SVG)
 		$svgW = 600; $svgH = 130; $barW = (int)($svgW / 24);
 		$svgBars = '';
-		// Tooltip-Overlay (versteckt, wird per JS positioniert)
-		$svgBars .= '<g id="stunden-tip" style="display:none" pointer-events="none">'
-			. '<rect id="stunden-tip-bg" rx="3" fill="#333" stroke="#555" stroke-width="1"/>'
-			. '<text id="stunden-tip-h" font-size="9" font-weight="bold" fill="#ffd080"></text>'
-			. '<text id="stunden-tip-c" font-size="8" fill="#aaa"></text>'
-			. '<text id="stunden-tip-m" font-size="7" fill="#ccc"></text>'
-			. '</g>';
+		// Tooltip wird nach der Schleife ans Ende gehängt (über Balken)
 		for ($i = 0; $i < 24; $i++) {
 			$v = $stundenCount[$i];
 			$bh = $v > 0 ? max(2, (int)round($v / $maxStunden * 90)) : 0;
@@ -437,27 +439,26 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			. 'var tipM=document.getElementById("stunden-tip-m");'
 			. 'if(!tip)return;'
 			. 'document.querySelectorAll(".sh").forEach(function(r){'
-			.   'r.addEventListener("mouseenter",function(e){'
-			.     'var d=JSON.parse(r.getAttribute("data-tip")||"{}"||"{}" );'
+			.   'r.addEventListener("mouseenter",function(){'
+			.     'var d=JSON.parse(r.getAttribute("data-tip")||"{}" );'
 			.     'if(!d.c){tip.style.display="none";return;}'
-			.     'tipH.textContent=d.h+" Uhr";'
-			.     'tipC.textContent=d.c+" Fehler/Warnings";'
+			.     'tipH.textContent=d.h+" Uhr – "+d.c+" Fehler/Warnings";'
 			.     'tipM.textContent=d.m||"";'
-			.     'var svgRect=r.ownerSVGElement.getBoundingClientRect();'
+			.     'tipC.textContent="";'
+			.     'var svgW=r.ownerSVGElement.viewBox.baseVal.width;'
+			.     'var svgH=r.ownerSVGElement.viewBox.baseVal.height;'
 			.     'var rx=parseFloat(r.getAttribute("x"));'
 			.     'var rw=parseFloat(r.getAttribute("width"));'
-			.     'var svgW=r.ownerSVGElement.viewBox.baseVal.width;'
-			.     'var svgElW=svgRect.width;'
-			.     'var scale=svgElW/svgW;'
-			.     'var tx=rx+rw/2;'
-			.     'var tw=Math.max(d.m?d.m.length*4+20:80,80);'
-			.     'var th=d.m?42:28;'
-			.     'if(tx+tw>svgW)tx=tx-tw;'
-			.     'tipBg.setAttribute("x",tx);tipBg.setAttribute("y",2);'
+			.     'var tw=Math.min(Math.max(d.m?d.m.length*5+16:120,120),300);'
+			.     'var th=d.m?36:22;'
+			.     'var tx=rx+rw/2-tw/2;'
+			.     'if(tx+tw>svgW-4)tx=svgW-tw-4;'
+			.     'if(tx<4)tx=4;'
+			.     'var ty=4;'
+			.     'tipBg.setAttribute("x",tx);tipBg.setAttribute("y",ty);'
 			.     'tipBg.setAttribute("width",tw);tipBg.setAttribute("height",th);'
-			.     'tipH.setAttribute("x",tx+4);tipH.setAttribute("y",14);'
-			.     'tipC.setAttribute("x",tx+4);tipC.setAttribute("y",24);'
-			.     'tipM.setAttribute("x",tx+4);tipM.setAttribute("y",34);'
+			.     'tipH.setAttribute("x",tx+6);tipH.setAttribute("y",ty+13);'
+			.     'tipM.setAttribute("x",tx+6);tipM.setAttribute("y",ty+26);'
 			.     'tip.style.display="";'
 			.   '});'
 			.   'r.addEventListener("mouseleave",function(){tip.style.display="none";});'
@@ -931,7 +932,7 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			.   '<a class="btn"' . $disA . ' href="' . $h . '?a=SeiteVor" title="Ältere">&#8250;</a>'
 			.   (($letzteSeite > 0 || $hatWeitere) ? '<a class="btn"' . ($letzteSeite > 0 && $seite >= $letzteSeite ? ' disabled' : '') . ' href="' . $h . '?a=LetzteSeite" title="Älteste">&#8677;</a>' : '')
 			.   '<a class="btn" href="' . $h . '?a=Aktualisieren" title="Aktualisieren (R)">&#8635;</a>'
-			.   '<a class="btn" href="' . $h . '?a=Statistik" title="Statistik" target="_blank">&#128202;</a>'
+			.   '<a class="btn" href="' . $h . '?a=Statistik" title="Statistik">&#128202;</a>'
 			. '</div>'
 			. '<form id="filter-form" method="GET" action="' . $h . '" onsubmit="return doFilter(event);"><input type="hidden" name="a" value="FilterAnwenden">'
 			. '<div class="bar2">'
