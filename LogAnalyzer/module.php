@@ -2182,7 +2182,11 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			'zaehlSignatur'            => (string) ($daten['zaehlSignatur'] ?? ''),
 			'tabellenLadungLaeuft'     => (bool) ($daten['tabellenLadungLaeuft'] ?? false),
 			'tabellenLadungText'       => trim((string) ($daten['tabellenLadungText'] ?? '')),
-			'letzteTabellenLadezeitMs' => max(0, (int) ($daten['letzteTabellenLadezeitMs'] ?? 0))
+			'letzteTabellenLadezeitMs' => max(0, (int) ($daten['letzteTabellenLadezeitMs'] ?? 0)),
+			'schriftgroesse'           => max(8, min(20, (int) ($daten['schriftgroesse'] ?? 12))),
+			'autoRefreshSek'           => max(0, (int) ($daten['autoRefreshSek'] ?? 0)),
+			'zeitVon'                  => trim((string) ($daten['zeitVon'] ?? '')),
+			'zeitBis'                  => trim((string) ($daten['zeitBis'] ?? ''))
 		];
 	}
 
@@ -2216,7 +2220,11 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 				'zaehlSignatur'            => (string) ($status['zaehlSignatur'] ?? ''),
 				'tabellenLadungLaeuft'     => (bool) ($status['tabellenLadungLaeuft'] ?? false),
 				'tabellenLadungText'       => trim((string) ($status['tabellenLadungText'] ?? '')),
-				'letzteTabellenLadezeitMs' => max(0, (int) ($status['letzteTabellenLadezeitMs'] ?? 0))
+				'letzteTabellenLadezeitMs' => max(0, (int) ($status['letzteTabellenLadezeitMs'] ?? 0)),
+				'schriftgroesse'           => max(8, min(20, (int) ($status['schriftgroesse'] ?? 12))),
+				'autoRefreshSek'           => max(0, (int) ($status['autoRefreshSek'] ?? 0)),
+				'zeitVon'                  => trim((string) ($status['zeitVon'] ?? '')),
+				'zeitBis'                  => trim((string) ($status['zeitBis'] ?? ''))
 			], JSON_THROW_ON_ERROR)
 		);
 	}
