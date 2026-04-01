@@ -265,6 +265,153 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		return $this->erstelleHtmlMitLogDatei(null);
 	}
 
+	public function ErstelleStatistik(): string
+	{
+		$logDatei = $this->leseAktuelleLogDatei();
+		$h = '/hook/LogAnalyzerIPSView_' . $this->InstanceID;
+		if (!is_file($logDatei)) {
+			return '<html><body style="background:#1a1a1a;color:#f88;padding:20px">Logdatei nicht gefunden.</body></html>';
+		}
+
+		// Daten einlesen
+		$fehlerCount   = []; // meldung => count
+		$senderCount   = []; // sender => count
+		$stundenCount  = array_fill(0, 24, 0); // 0-23 => count (nur ERROR+WARNING)
+		$typCount      = [];
+		$gesamt        = 0;
+		$heute         = date('Y-m-d');
+
+		$handle = @fopen($logDatei, 'rb');
+		if ($handle) {
+			while (($zeile = fgets($handle)) !== false) {
+				$p = $this->parseLogZeile($zeile);
+				if ($p === null) continue;
+				$gesamt++;
+				$typ = strtoupper((string)($p['typ'] ?? ''));
+				$typCount[$typ] = ($typCount[$typ] ?? 0) + 1;
+				$sender = (string)($p['sender'] ?? '');
+				$senderCount[$sender] = ($senderCount[$sender] ?? 0) + 1;
+				if (in_array($typ, ['ERROR','WARNING'], true)) {
+					$msg = trim((string)($p['meldung'] ?? ''));
+					$fehlerCount[$msg] = ($fehlerCount[$msg] ?? 0) + 1;
+					$zeit = (string)($p['zeitstempel'] ?? '');
+					if (preg_match('/(\d{2}):\d{2}:\d{2}/', $zeit, $m)) {
+						$stunde = (int)$m[1];
+						$stundenCount[$stunde]++;
+					}
+				}
+			}
+			fclose($handle);
+		}
+
+		// Top-Fehler sortieren
+		arsort($fehlerCount);
+		$topFehler = array_slice($fehlerCount, 0, 20, true);
+		arsort($senderCount);
+		$topSender = array_slice($senderCount, 0, 10, true);
+
+		$maxStunden = max($stundenCount) ?: 1;
+		$maxFehler  = $topFehler ? max($topFehler) : 1;
+		$maxSender  = $topSender ? max($topSender) : 1;
+
+		// Stunden-Chart (SVG)
+		$svgW = 600; $svgH = 120; $barW = (int)($svgW / 24);
+		$svgBars = '';
+		for ($i = 0; $i < 24; $i++) {
+			$v = $stundenCount[$i];
+			$bh = $v > 0 ? max(2, (int)round($v / $maxStunden * 90)) : 0;
+			$x = $i * $barW + 1;
+			$y = $svgH - $bh - 20;
+			$farbe = $v > $maxStunden * 0.7 ? '#f66' : ($v > $maxStunden * 0.3 ? '#fa0' : '#5a9');
+			if ($bh > 0) $svgBars .= '<rect x="' . $x . '" y="' . $y . '" width="' . ($barW-2) . '" height="' . $bh . '" fill="' . $farbe . '" rx="2"/>';
+			$lbl = sprintf('%02d', $i);
+			$lx = $x + (int)($barW/2) - 5;
+			$svgBars .= '<text x="' . $lx . '" y="' . ($svgH-4) . '" font-size="8" fill="#666">' . $lbl . '</text>';
+			if ($v > 0) $svgBars .= '<text x="' . $lx . '" y="' . ($y-3) . '" font-size="7" fill="#aaa">' . $v . '</text>';
+		}
+
+		// Top-Fehler Tabelle
+		$fehlerRows = '';
+		$rank = 1;
+		foreach ($topFehler as $msg => $cnt) {
+			$pct = $maxFehler > 0 ? (int)round($cnt / $maxFehler * 100) : 0;
+			$msgH = htmlspecialchars(strlen($msg) > 100 ? substr($msg, 0, 100) . '…' : $msg);
+			$barColor = $rank <= 3 ? '#f66' : '#fa0';
+			$fehlerRows .= '<tr>'
+				. '<td style="color:#666;width:30px;text-align:right">' . $rank . '</td>'
+				. '<td style="color:#f88;font-weight:bold;width:50px;text-align:right">' . $cnt . '×</td>'
+				. '<td style="padding:0 8px"><div style="background:' . $barColor . ';height:6px;width:' . $pct . '%;border-radius:3px;margin-bottom:2px"></div>' . $msgH . '</td>'
+				. '</tr>';
+			$rank++;
+		}
+
+		// Top-Sender Tabelle
+		$senderRows = '';
+		foreach ($topSender as $snd => $cnt) {
+			$pct = $maxSender > 0 ? (int)round($cnt / $maxSender * 100) : 0;
+			$sndH = htmlspecialchars($snd);
+			$senderRows .= '<tr>'
+				. '<td style="color:#ffd080;width:120px">' . $sndH . '</td>'
+				. '<td style="color:#aaa;width:50px;text-align:right">' . $cnt . '</td>'
+				. '<td style="padding-left:8px"><div style="background:#5a9;height:6px;width:' . $pct . '%;border-radius:3px"></div></td>'
+				. '</tr>';
+		}
+
+		// Typ-Verteilung
+		$typRows = '';
+		arsort($typCount);
+		$maxTyp = $typCount ? max($typCount) : 1;
+		$typFarben = ['ERROR'=>'#f66','WARNING'=>'#fa0','DEBUG'=>'#7ecfff','MESSAGE'=>'#ccc','CUSTOM'=>'#ffcc88','NOTIFY'=>'#d0aaff','SUCCESS'=>'#88ffcc'];
+		foreach ($typCount as $typ => $cnt) {
+			$pct = (int)round($cnt / $maxTyp * 100);
+			$pctGes = $gesamt > 0 ? round($cnt / $gesamt * 100, 1) : 0;
+			$fc = $typFarben[strtoupper($typ)] ?? '#aaa';
+			$typRows .= '<tr>'
+				. '<td style="color:' . $fc . ';font-weight:bold;width:90px">' . htmlspecialchars($typ) . '</td>'
+				. '<td style="color:#aaa;width:60px;text-align:right">' . $cnt . '</td>'
+				. '<td style="color:#666;width:50px;text-align:right">' . $pctGes . '%</td>'
+				. '<td style="padding-left:8px"><div style="background:' . $fc . ';height:6px;width:' . $pct . '%;border-radius:3px"></div></td>'
+				. '</tr>';
+		}
+
+		$dateiname = htmlspecialchars(basename($logDatei));
+		$ts = date('d.m.Y H:i:s');
+		$gesamtFehler = array_sum(array_filter($typCount, fn($k) => in_array($k, ['ERROR','WARNING']), ARRAY_FILTER_USE_KEY));
+
+		return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">'
+			. '<title>Statistik – ' . $dateiname . '</title>'
+			. '<style>'
+			. '*{box-sizing:border-box;margin:0;padding:0}'
+			. 'body{font-family:Arial,sans-serif;font-size:13px;background:#1a1a1a;color:#ccc;padding:12px}'
+			. 'h2{font-size:15px;color:#ffd080;margin-bottom:12px;border-bottom:1px solid #333;padding-bottom:6px}'
+			. 'h3{font-size:13px;color:#aaa;margin:16px 0 6px;text-transform:uppercase;letter-spacing:.5px}'
+			. '.card{background:#222;border:1px solid #2e2e2e;border-radius:6px;padding:12px;margin-bottom:12px}'
+			. 'table{width:100%;border-collapse:collapse}'
+			. 'tr:hover td{background:#252525}'
+			. 'td{padding:3px 4px;vertical-align:middle;font-size:12px}'
+			. '.meta{color:#555;font-size:11px;margin-bottom:12px}'
+			. '.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}'
+			. '@media(max-width:700px){.grid{grid-template-columns:1fr}}'
+			. '</style></head><body>'
+			. '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">'
+			. '<h2 style="margin:0">&#128202; Statistik – ' . $dateiname . '</h2>'
+			. '<a href="' . $h . '" style="background:#2a2a2a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:4px 12px;text-decoration:none;font-size:12px">&#8592; Zurück</a>'
+			. '</div>'
+			. '<div class="meta">Gesamt: ' . number_format($gesamt) . ' Zeilen &nbsp;|&nbsp; Fehler/Warnings heute: ' . number_format($gesamtFehler) . ' &nbsp;|&nbsp; Stand: ' . $ts . '</div>'
+			. '<div class="card">'
+			. '<h3>&#128200; Errors + Warnings nach Uhrzeit</h3>'
+			. '<svg viewBox="0 0 ' . $svgW . ' ' . $svgH . '" width="100%" style="background:#1a1a1a;border-radius:4px">' . $svgBars . '</svg>'
+			. '</div>'
+			. '<div class="grid">'
+			. '<div class="card"><h3>&#9888; Häufigste Fehler (Top 20)</h3><table>' . $fehlerRows . '</table></div>'
+			. '<div>'
+			. '<div class="card"><h3>&#128101; Aktivste Sender</h3><table>' . $senderRows . '</table></div>'
+			. '<div class="card"><h3>&#127381; Typ-Verteilung</h3><table>' . $typRows . '</table></div>'
+			. '</div>'
+			. '</div>'
+			. '</body></html>';
+	}
+
 	public function ObjektIdAufloesen(string $oid): string
 	{
 		$id = (int) $oid;
@@ -729,6 +876,7 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			.   '<a class="btn"' . $disA . ' href="' . $h . '?a=SeiteVor" title="Ältere">&#8250;</a>'
 			.   (($letzteSeite > 0 || $hatWeitere) ? '<a class="btn"' . ($letzteSeite > 0 && $seite >= $letzteSeite ? ' disabled' : '') . ' href="' . $h . '?a=LetzteSeite" title="Älteste">&#8677;</a>' : '')
 			.   '<a class="btn" href="' . $h . '?a=Aktualisieren" title="Aktualisieren (R)">&#8635;</a>'
+			.   '<a class="btn" href="' . $h . '?a=Statistik" title="Statistik" target="_blank">&#128202;</a>'
 			. '</div>'
 			. '<form id="filter-form" method="GET" action="' . $h . '" onsubmit="return doFilter(event);"><input type="hidden" name="a" value="FilterAnwenden">'
 			. '<div class="bar2">'

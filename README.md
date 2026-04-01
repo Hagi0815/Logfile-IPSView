@@ -1,8 +1,6 @@
 # Log Analyzer IPSView
 
-
-**Version:** 1.1 · **Autor:** Christian Hagedorn · **IPS-Kompatibilität:** 8.1+
-
+**Version:** 0.7.1 · **Autor:** Christian Hagedorn · **IPS-Kompatibilität:** 8.1+
 
 Ein vollständiger Log-Viewer für IP-Symcon, der direkt in einer HTML-Box oder im IPSView/WebFront angezeigt wird. Alle Interaktionen (Filter, Navigation, Export) laufen über einen WebHook – ohne Seitenneuladen der gesamten Oberfläche.
 
@@ -10,11 +8,12 @@ Ein vollständiger Log-Viewer für IP-Symcon, der direkt in einer HTML-Box oder 
 
 ## Installation
 
-1. Modul über Modulcontrol installieren https://github.com/Hagi0815/Logfile-IPSView
-2. Den WebHook in IPS registrieren: **Skripte → WebHook Control → Neuer Hook**
+1. ZIP-Datei in IP-Symcon importieren: **Kerninstanzen → Instanz hinzufügen → Log Analyzer IPSView**
+2. In der Instanzkonfiguration die gewünschte Standard-Logdatei auswählen
+3. Den WebHook in IPS registrieren: **Skripte → WebHook Control → Neuer Hook**
    - Hook-Pfad: `/hook/LogAnalyzerIPSView_{InstanceID}`
    - Skript: Das automatisch erstellte Kind-Skript `WebHook Handler` der Instanz auswählen
-3. Eine HTML-Box anlegen und als Inhalt einen `<iframe>` mit dem Hook-Pfad eintragen:
+4. Eine HTML-Box anlegen und als Inhalt einen `<iframe>` mit dem Hook-Pfad eintragen:
    ```html
    <iframe src="/hook/LogAnalyzerIPSView_12345" style="width:100%;height:100%;border:none"></iframe>
    ```
