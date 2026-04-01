@@ -575,11 +575,19 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				. '</label>';
 		}
 
-		$sndOpts = '<option value="">— Alle Sender —</option>';
+		$sndCbs = '';
 		foreach ($verfSender as $s) {
-			$ss2 = htmlspecialchars($s);
-			$sel = in_array($s, $aktiveSender, true) ? ' selected' : '';
-			$sndOpts .= '<option value="' . $ss2 . '"' . $sel . '>' . $ss2 . '</option>';
+			$ss2   = htmlspecialchars($s);
+			$aktiv = in_array($s, $aktiveSender, true);
+			$chk   = $aktiv ? ' checked' : '';
+			$cbId  = 'snd-cb-' . preg_replace('/[^a-z0-9]/i', '', $s);
+			$bg    = $aktiv ? 'background:#2a3a2a;border-color:#4a7a4a;' : '';
+			$sndCbs .= '<label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;'
+				. 'padding:2px 7px;border-radius:4px;border:1px solid #3a3a3a;' . $bg . '">'
+				. '<input type="checkbox" name="sf[]" value="' . $ss2 . '" id="' . $cbId . '"' . $chk
+				. ' class="snd-cb" style="accent-color:#6a6;cursor:pointer" onchange="submitTypFilter()">'
+				. '<span style="font-size:var(--fs,12px);color:#aaa">' . $ss2 . '</span>'
+				. '</label>';
 		}
 
 		$fb = '';
@@ -718,7 +726,9 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			. '<form id="filter-form" method="GET" action="' . $h . '" onsubmit="return doFilter(event);"><input type="hidden" name="a" value="FilterAnwenden">'
 			. '<div class="bar2">'
 			.   '<div class="grp"><span class="lbl">Sender</span>'
-			.   '<select name="sf[]" multiple style="width:160px;height:68px">' . $sndOpts . '</select></div>'
+			.   '<div style="display:flex;flex-wrap:wrap;gap:4px;padding-top:2px;max-width:400px">'
+			.   ($sndCbs ?: '<span style="color:#555;font-size:var(--fs,12px)">...</span>')
+			.   '</div></div>'
 			.   '<div class="grp"><span class="lbl">Text</span>'
 			.   '<input type="text" name="tf" value="' . $textFilter . '" placeholder="Freitext..." style="width:120px"></div>'
 			.   '<div class="grp"><span class="lbl">ObjID</span>'
@@ -764,7 +774,7 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			. '<script>'
 			. 'function buildFilterUrl(){'
 			.   'var h="' . $h . '",p="a=FilterAnwenden";'
-			.   'document.querySelectorAll("#filter-form select[name=\\"sf[]\\"] option:checked").forEach(function(o){p+="&sf[]="+encodeURIComponent(o.value);});'
+			.   'document.querySelectorAll("input.snd-cb:checked").forEach(function(cb){p+="&sf[]="+encodeURIComponent(cb.value);});'
 			.   'var tf=document.querySelector("#filter-form input[name=tf]");if(tf&&tf.value)p+="&tf="+encodeURIComponent(tf.value);'
 			.   'var oi=document.querySelector("#filter-form input[name=oi]");if(oi&&oi.value)p+="&oi="+encodeURIComponent(oi.value);'
 			.   'var zv=document.querySelector("#filter-form input[name=zv]");if(zv&&zv.value)p+="&zv="+encodeURIComponent(zv.value);'
