@@ -887,7 +887,6 @@ input[type=text]:focus{outline:none;border-color:#666}
 .btn-p{background:#5a3000;border-color:#8a5000;color:#ffd080}.btn-p:hover{background:#7a4000}
 .btn-r{background:#2a1a1a;border-color:#553333;color:#f99}.btn-r:hover{background:#3a2020}
 .btn[disabled]{opacity:.4;pointer-events:none}
-.fb{display:none}.badge{display:inline-flex;align-items:center;gap:4px;border-radius:4px;padding:2px 8px;font-size:var(--fs,12px);margin:2px 3px 2px 0;text-decoration:none;cursor:pointer}.badge-typ{background:#3a2800;border:1px solid #7a5000;color:#ffd080}.badge-typ:hover{background:#4a3400}.badge-snd{background:#1a2a3a;border:1px solid #2a5a8a;color:#7ecfff}.badge-snd:hover{background:#243448}.badge-txt{background:#2a1a3a;border:1px solid #5a3a8a;color:#d0aaff}.badge-txt:hover{background:#341d4a}.badge-time{background:#1a3a2a;border:1px solid #2a7a5a;color:#88ffcc}.badge-time:hover{background:#1d4a34}.btn-xs{padding:1px 6px;font-size:calc(var(--fs,12px) - 1px);height:20px}.detail-row td{background:#1e1e2a!important}.detail-box{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;padding:10px 14px;font-size:var(--fs,12px)}.dl{color:#666;margin-right:6px;min-width:70px;display:inline-block}.log-row:hover{background:#252535!important}.log-row.open{background:#202030!important}
 .mu{color:#555;font-size:var(--fs,12px)}
 .meta{padding:5px 10px;font-size:var(--fs,12px);color:#666;background:#1a1a1a;border-bottom:1px solid #2a2a2a;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
 table{width:100%;border-collapse:collapse}
@@ -955,17 +954,9 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			.   '<input type="text" name="tf" value="' . $textFilter . '" placeholder="Freitext..." style="width:120px"></div>'
 			.   '<div class="grp"><span class="lbl">ObjID</span>'
 			.   '<input type="text" name="oi" value="' . $objektFilter . '" placeholder="ObjektID..." style="width:80px"></div>'
-			.   '<div class="grp"><span class="lbl">Zeitraum</span>'
-			.   '<div style="display:flex;gap:3px;flex-wrap:wrap;padding-top:2px">'
-			.   '<button type="button" class="btn btn-xs" onclick="setZeitraum(\'heute\')" title="Heute">Heute</button>'
-			.   '<button type="button" class="btn btn-xs" onclick="setZeitraum(\'1h\')" title="Letzte Stunde">1h</button>'
-			.   '<button type="button" class="btn btn-xs" onclick="setZeitraum(\'6h\')" title="Letzte 6 Stunden">6h</button>'
-			.   '<button type="button" class="btn btn-xs" onclick="setZeitraum(\'7d\')" title="Letzte 7 Tage">7T</button>'
 			.   '</div></div>'
 			.   '<div class="grp"><span class="lbl">Von</span>'
-			.   '<input type="text" name="zv" id="inp-zv" value="' . htmlspecialchars($zeitVon) . '" placeholder="2026-01-01 00:00" style="width:115px"></div>'
 			.   '<div class="grp"><span class="lbl">Bis</span>'
-			.   '<input type="text" name="zb" id="inp-zb" value="' . htmlspecialchars($zeitBis) . '" placeholder="2026-12-31 23:59" style="width:115px"></div>'
 			.   '<div class="grp" style="align-self:flex-end;flex-direction:row;gap:4px">'
 			.   '<button type="submit" class="btn btn-p">&#10003; Filter</button>'
 			.   '<a class="btn btn-r" href="' . $h . '?a=FilterReset">&#10005; Reset</a>'
@@ -983,9 +974,6 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			. (function() use ($daten) {
 				$tz = is_array($daten['tagesZusammenfassung'] ?? null) ? $daten['tagesZusammenfassung'] : [];
 				$r = '';
-				if (($tz['ERROR']??0)>0)   $r .= '<span style="color:#f66;font-weight:bold" title="Heute">&#9888; '.$tz['ERROR'].' Error'.($tz['ERROR']>1?'s':'').'</span> ';
-				if (($tz['WARNING']??0)>0) $r .= '<span style="color:#fa0" title="Heute">&#9651; '.$tz['WARNING'].' Warning'.($tz['WARNING']>1?'s':'').'</span> ';
-				if (($tz['MESSAGE']??0)>0) $r .= '<span style="color:#888" title="Heute">&#8227; '.$tz['MESSAGE'].' Message'.($tz['MESSAGE']>1?'s':'').'</span> ';
 				return $r ? '<span style="margin-left:8px;padding-left:8px;border-left:1px solid #333">'.trim($r).'</span>' : '';
 			})()
 			. '<span>Treffer:&nbsp;' . $metaTreffer . '</span>'
@@ -1001,8 +989,6 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			. '</tr></thead>'
 			. '<tbody>' . $tbody . '</tbody></table></div>'
 			. '<script>'
-			. 'function pad(n){return String(n).padStart(2,"0");}'
-			. 'function setZeitraum(t){'
 			.   'var now=new Date(),zv="",zb="";'
 			.   'var p2=function(n){return String(n).padStart(2,"0");};'
 			.   'var fmt=function(d){return d.getFullYear()+"-"+p2(d.getMonth()+1)+"-"+p2(d.getDate())+" "+p2(d.getHours())+":"+p2(d.getMinutes());};'
