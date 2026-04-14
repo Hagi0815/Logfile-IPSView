@@ -423,9 +423,10 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			$bh = $v > 0 ? max(2, (int)round(log($v+1,10) / $maxTagLog * $tChartH)) : 0;
 			$x  = 34 + $idx * $trendBarW;
 			$fc = ($tag === $heute) ? '#f88' : ($tag === $gestern ? '#fa8' : '#4a6a8a');
-			if ($bh > 0) $trendBars .= '<rect x="' . ($x+1) . '" y="' . ($trendH-$bh-20) . '" width="' . ($trendBarW-2) . '" height="' . $bh . '" fill="' . $fc . '" rx="1">'
-				. '<title>' . date('d.m.Y', strtotime($tag)) . ': ' . $v . ' Einträge</title>'
-				. '</rect>';
+			$tagLabel = date('d.m.Y', strtotime($tag));
+			$tagWt = $tage[(int)date('N', strtotime($tag)) - 1];
+			if ($bh > 0) $trendBars .= '<rect x="' . ($x+1) . '" y="' . ($trendH-$bh-20) . '" width="' . ($trendBarW-2) . '" height="' . $bh . '" fill="' . $fc . '" rx="1"'
+				. ' data-d="' . htmlspecialchars($tagWt . ', ' . $tagLabel, ENT_QUOTES) . '" data-v="' . $v . '" data-ges="' . ($tageCount[$tag] ?? 0) . '" class="th" cursor="pointer"/>';
 			if ($idx % 5 === 0 || $tag === $heute) {
 				$lbl = date('d.m', strtotime($tag));
 				$trendBars .= '<text x="' . ($x+1) . '" y="' . ($trendH-4) . '" font-size="7" fill="#444">' . $lbl . '</text>';
@@ -449,16 +450,15 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			for ($h2 = 0; $h2 < 24; $h2++) {
 				$v = $heatmap[$d][$h2] ?? 0;
 				$cx = 24 + $h2 * $hmCellW;
+				$hmLabel2 = htmlspecialchars($tage[$d] . ', ' . sprintf('%02d:00',$h2), ENT_QUOTES);
 				if ($v > 0) {
 					$intensity = min(1.0, $v / $hmMax);
 					$r = (int)(40 + $intensity * 190);
-					$g = (int)(10 + $intensity * 10);
+					$gg = (int)(10 + $intensity * 10);
 					$b = (int)(10 + $intensity * 10);
-					$fill = sprintf('rgb(%d,%d,%d)', $r, $g, $b);
-					$hmSvg .= '<rect x="' . $cx . '" y="' . $y . '" width="' . ($hmCellW-1) . '" height="' . ($hmCellH-2) . '" fill="' . $fill . '" rx="1">'
-						. '<title>' . $tage[$d] . ' ' . sprintf('%02d:00',$h2) . ': ' . $v . '</title>'
-						. '</rect>';
-					// Zahl in Zelle wenn breit genug
+					$fill = sprintf('rgb(%d,%d,%d)', $r, $gg, $b);
+					$hmSvg .= '<rect x="' . $cx . '" y="' . $y . '" width="' . ($hmCellW-1) . '" height="' . ($hmCellH-2) . '" fill="' . $fill . '" rx="1"'
+						. ' data-d="' . $hmLabel2 . '" data-v="' . $v . '" class="hm" cursor="pointer"/>';
 					if ($hmCellW >= 20) {
 						$textCol = $intensity > 0.6 ? '#fff' : '#aaa';
 						$hmSvg .= '<text x="' . ($cx + (int)($hmCellW/2)) . '" y="' . ($y+15) . '" font-size="7" fill="' . $textCol . '" text-anchor="middle" pointer-events="none">' . $v . '</text>';
@@ -487,10 +487,9 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			$x  = 20 + $d * $wtBarW;
 			$fc = $d >= 5 ? '#7a5a2a' : '#3a6a5a';
 			if ($bh > 0) {
-				$wtSvg .= '<rect x="' . ($x+2) . '" y="' . ($wtH-$bh-20) . '" width="' . ($wtBarW-4) . '" height="' . $bh . '" fill="' . $fc . '" rx="2">'
-					. '<title>' . $tage[$d] . ': ' . $v . '</title>'
-					. '</rect>';
-				if ($bh > 14) $wtSvg .= '<text x="' . ($x + (int)($wtBarW/2)) . '" y="' . ($wtH-$bh-22) . '" font-size="7" fill="#888" text-anchor="middle">' . $v . '</text>';
+				$wtSvg .= '<rect x="' . ($x+2) . '" y="' . ($wtH-$bh-20) . '" width="' . ($wtBarW-4) . '" height="' . $bh . '" fill="' . $fc . '" rx="2"'
+					. ' data-d="' . htmlspecialchars($tage[$d], ENT_QUOTES) . '" data-v="' . $v . '" class="wt" cursor="pointer"/>';
+				if ($bh > 14) $wtSvg .= '<text x="' . ($x + (int)($wtBarW/2)) . '" y="' . ($wtH-$bh-22) . '" font-size="7" fill="#888" text-anchor="middle" pointer-events="none">' . $v . '</text>';
 			}
 			$wtSvg .= '<text x="' . ($x + (int)($wtBarW/2)) . '" y="' . ($wtH-5) . '" font-size="8" fill="#555" text-anchor="middle">' . $tage[$d] . '</text>';
 		}
@@ -643,24 +642,53 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			// SVG Tooltip JS
 			. '<script>'
 			. 'var _t=document.getElementById("chtip");'
+			. 'function showTip(e,html){_t.innerHTML=html;_t.style.display="block";_t.style.left=(e.clientX+14)+"px";_t.style.top=(e.clientY-10)+"px";}'
+			. 'function moveTip(e){_t.style.left=(e.clientX+14)+"px";_t.style.top=(e.clientY-10)+"px";}'
+			. 'function hideTip(){_t.style.display="none";}'
 			. 'document.querySelectorAll(".sh").forEach(function(r){'
 			.   'r.addEventListener("mouseenter",function(e){'
 			.     'var c=parseInt(r.getAttribute("data-c")||"0");'
 			.     'var g=parseInt(r.getAttribute("data-g")||"0");'
-			.     'if(!c&&!g){_t.style.display="none";return;}'
-			.     '_t.innerHTML="<b style=\"color:#ffd080\">"+(r.getAttribute("data-h")||"")+" Uhr</b><br>"'
-			.       '+"<span style=\"color:#f88\">Heute: <b>"+c+"</b></span>"'
-			.       '+" &nbsp; <span style=\"color:#666\">Gestern: "+g+"</span><br>"'
-			.       '+(r.getAttribute("data-m")?"<span style=\"color:#999\">"+r.getAttribute("data-m")+"</span>":"");'
-			.     '_t.style.display="block";'
-			.     '_t.style.left=(e.clientX+14)+"px";'
-			.     '_t.style.top=(e.clientY-10)+"px";'
+			.     'if(!c&&!g){hideTip();return;}'
+			.     'showTip(e,'
+			.       '"<b style=\\"color:#ffd080\\">"+(r.getAttribute("data-h")||"")+" Uhr</b><br>"'
+			.       '+"<span style=\\"color:#f88\\">Heute: <b>"+c+"</b></span> &nbsp;"'
+			.       '+"<span style=\\"color:#555\\">Gestern: "+g+"</span>"'
+			.       '+(r.getAttribute("data-m")?"<br><span style=\\"color:#999\\">"+r.getAttribute("data-m")+"</span>":"")'
+			.     ');'
 			.   '});'
-			.   'r.addEventListener("mousemove",function(e){'
-			.     '_t.style.left=(e.clientX+14)+"px";'
-			.     '_t.style.top=(e.clientY-10)+"px";'
+			.   'r.addEventListener("mousemove",moveTip);'
+			.   'r.addEventListener("mouseleave",hideTip);'
+			. '});'
+			. 'document.querySelectorAll(".th").forEach(function(r){'
+			.   'r.addEventListener("mouseenter",function(e){'
+			.     'showTip(e,'
+			.       '"<b style=\\"color:#ffd080\\">"+r.getAttribute("data-d")+"</b><br>"'
+			.       '+"Einträge: <b style=\\"color:#f88\\">"+r.getAttribute("data-v")+"</b>"'
+			.     ');'
 			.   '});'
-			.   'r.addEventListener("mouseleave",function(){_t.style.display="none";});'
+			.   'r.addEventListener("mousemove",moveTip);'
+			.   'r.addEventListener("mouseleave",hideTip);'
+			. '});'
+			. 'document.querySelectorAll(".hm").forEach(function(r){'
+			.   'r.addEventListener("mouseenter",function(e){'
+			.     'showTip(e,'
+			.       '"<b style=\\"color:#ffd080\\">"+r.getAttribute("data-d")+"</b><br>"'
+			.       '+"Einträge: <b style=\\"color:#f88\\">"+r.getAttribute("data-v")+"</b>"'
+			.     ');'
+			.   '});'
+			.   'r.addEventListener("mousemove",moveTip);'
+			.   'r.addEventListener("mouseleave",hideTip);'
+			. '});'
+			. 'document.querySelectorAll(".wt").forEach(function(r){'
+			.   'r.addEventListener("mouseenter",function(e){'
+			.     'showTip(e,'
+			.       '"<b style=\\"color:#ffd080\\">"+r.getAttribute("data-d")+"</b><br>"'
+			.       '+"Einträge: <b style=\\"color:#f88\\">"+r.getAttribute("data-v")+"</b>"'
+			.     ');'
+			.   '});'
+			.   'r.addEventListener("mousemove",moveTip);'
+			.   'r.addEventListener("mouseleave",hideTip);'
 			. '});'
 			. '</script>'
 			. '</body></html>';
