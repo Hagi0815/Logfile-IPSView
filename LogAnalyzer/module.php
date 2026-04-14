@@ -780,12 +780,27 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		}
 
 		$fb = '';
-		foreach ($aktiveTypen  as $t) $fb .= '<span class="fb">Typ: ' . htmlspecialchars($t) . '</span>';
-		foreach ($aktiveSender as $s) $fb .= '<span class="fb">Sender: ' . htmlspecialchars($s) . '</span>';
-		if ($textFilter)   $fb .= '<span class="fb">Text: ' . $textFilter . '</span>';
-		if ($objektFilter) $fb .= '<span class="fb">ObjID: ' . $objektFilter . '</span>';
-		if ($zeitVon)      $fb .= '<span class="fb">Von: ' . htmlspecialchars($zeitVon) . '</span>';
-		if ($zeitBis)      $fb .= '<span class="fb">Bis: ' . htmlspecialchars($zeitBis) . '</span>';
+		$rmBase = $h . '?a=FilterAnwenden'
+			. (empty($aktiveTypen) ? '' : '&' . implode('&', array_map(fn($t) => 'ft[]=' . urlencode($t), $aktiveTypen)))
+			. (empty($aktiveSender) ? '' : '&' . implode('&', array_map(fn($s) => 'sf[]=' . urlencode($s), $aktiveSender)))
+			. ($textFilter ? '&tf=' . urlencode(html_entity_decode($textFilter)) : '')
+			. ($objektFilter ? '&oi=' . urlencode(html_entity_decode($objektFilter)) : '')
+			. ($zeitVon ? '&zv=' . urlencode($zeitVon) : '')
+			. ($zeitBis ? '&zb=' . urlencode($zeitBis) : '');
+		foreach ($aktiveTypen as $t) {
+			$rmUrl = str_replace('ft[]=' . urlencode($t) . '&', '', $rmBase);
+			$rmUrl = str_replace('&ft[]=' . urlencode($t), '', $rmUrl);
+			$fb .= '<a class="badge badge-typ" href="' . $rmUrl . '" title="Filter entfernen">Typ: ' . htmlspecialchars($t) . ' ×</a>';
+		}
+		foreach ($aktiveSender as $s) {
+			$rmUrl = str_replace('sf[]=' . urlencode($s) . '&', '', $rmBase);
+			$rmUrl = str_replace('&sf[]=' . urlencode($s), '', $rmUrl);
+			$fb .= '<a class="badge badge-snd" href="' . $rmUrl . '" title="Filter entfernen">Sender: ' . htmlspecialchars($s) . ' ×</a>';
+		}
+		if ($textFilter)   $fb .= '<a class="badge badge-txt" href="' . str_replace('&tf=' . urlencode(html_entity_decode($textFilter)), '', $rmBase) . '" title="Filter entfernen">Text: ' . $textFilter . ' ×</a>';
+		if ($objektFilter) $fb .= '<a class="badge badge-txt" href="' . str_replace('&oi=' . urlencode(html_entity_decode($objektFilter)), '', $rmBase) . '" title="Filter entfernen">ObjID: ' . $objektFilter . ' ×</a>';
+		if ($zeitVon)      $fb .= '<a class="badge badge-time" href="' . str_replace('&zv=' . urlencode($zeitVon), '', $rmBase) . '" title="Filter entfernen">Von: ' . htmlspecialchars($zeitVon) . ' ×</a>';
+		if ($zeitBis)      $fb .= '<a class="badge badge-time" href="' . str_replace('&zb=' . urlencode($zeitBis), '', $rmBase) . '" title="Filter entfernen">Bis: ' . htmlspecialchars($zeitBis) . ' ×</a>';
 		$fb = $fb ?: '<span class="mu">Kein Filter aktiv</span>';
 
 		$disN = ($seite <= 0) ? ' disabled' : '';
@@ -834,14 +849,24 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				} else {
 					$oidCell = $oidRaw;
 				}
-				$tbody .= '<tr>'
-					. '<td class="cz" style="color:#444;min-width:30px;text-align:right">' . $znr++ . '</td>'
+				$zNrVal = $znr++;
+				$tbody .= '<tr class="log-row" onclick="toggleDetail(this)" style="cursor:pointer">'
+					. '<td class="cz" style="color:#444;min-width:30px;text-align:right">' . $zNrVal . '</td>'
 					. '<td class="cz">' . $zeit . '</td>'
 					. '<td class="co">' . $oidCell . '</td>'
 					. '<td class="ct">' . $typLink . '</td>'
 					. '<td class="cs">' . $sndLink . '</td>'
 					. '<td class="cm">' . $msgHtml . '</td>'
-					. '</tr>';
+					. '</tr>'
+					. '<tr class="detail-row" style="display:none"><td colspan="6" style="padding:0">'
+					. '<div class="detail-box">'
+					. '<div><span class="dl">Zeit:</span><span>' . $zeit . '</span></div>'
+					. '<div><span class="dl">ObjektID:</span><span>' . $oidCell . '</span></div>'
+					. '<div><span class="dl">Typ:</span><span style="color:' . $fc . ';font-weight:bold">' . htmlspecialchars($typRaw) . '</span></div>'
+					. '<div><span class="dl">Sender:</span><span>' . htmlspecialchars($sndRaw) . '</span></div>'
+					. '<div style="grid-column:1/-1"><span class="dl">Meldung:</span><span style="color:#eee;word-break:break-all">' . htmlspecialchars($msgRaw) . '</span></div>'
+					. '</div>'
+					. '</td></tr>';
 			}
 		}
 
@@ -862,7 +887,7 @@ input[type=text]:focus{outline:none;border-color:#666}
 .btn-p{background:#5a3000;border-color:#8a5000;color:#ffd080}.btn-p:hover{background:#7a4000}
 .btn-r{background:#2a1a1a;border-color:#553333;color:#f99}.btn-r:hover{background:#3a2020}
 .btn[disabled]{opacity:.4;pointer-events:none}
-.fb{background:#5a3000;border:1px solid #8a5000;color:#ffd080;border-radius:3px;padding:2px 7px;font-size:var(--fs,12px);margin-right:3px}
+.fb{display:none}.badge{display:inline-flex;align-items:center;gap:4px;border-radius:4px;padding:2px 8px;font-size:var(--fs,12px);margin:2px 3px 2px 0;text-decoration:none;cursor:pointer}.badge-typ{background:#3a2800;border:1px solid #7a5000;color:#ffd080}.badge-typ:hover{background:#4a3400}.badge-snd{background:#1a2a3a;border:1px solid #2a5a8a;color:#7ecfff}.badge-snd:hover{background:#243448}.badge-txt{background:#2a1a3a;border:1px solid #5a3a8a;color:#d0aaff}.badge-txt:hover{background:#341d4a}.badge-time{background:#1a3a2a;border:1px solid #2a7a5a;color:#88ffcc}.badge-time:hover{background:#1d4a34}.btn-xs{padding:1px 6px;font-size:calc(var(--fs,12px) - 1px);height:20px}.detail-row td{background:#1e1e2a!important}.detail-box{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;padding:10px 14px;font-size:var(--fs,12px)}.dl{color:#666;margin-right:6px;min-width:70px;display:inline-block}.log-row:hover{background:#252535!important}.log-row.open{background:#202030!important}
 .mu{color:#555;font-size:var(--fs,12px)}
 .meta{padding:5px 10px;font-size:var(--fs,12px);color:#666;background:#1a1a1a;border-bottom:1px solid #2a2a2a;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
 table{width:100%;border-collapse:collapse}
@@ -930,10 +955,17 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			.   '<input type="text" name="tf" value="' . $textFilter . '" placeholder="Freitext..." style="width:120px"></div>'
 			.   '<div class="grp"><span class="lbl">ObjID</span>'
 			.   '<input type="text" name="oi" value="' . $objektFilter . '" placeholder="ObjektID..." style="width:80px"></div>'
+			.   '<div class="grp"><span class="lbl">Zeitraum</span>'
+			.   '<div style="display:flex;gap:3px;flex-wrap:wrap;padding-top:2px">'
+			.   '<button type="button" class="btn btn-xs" onclick="setZeitraum(\'heute\')" title="Heute">Heute</button>'
+			.   '<button type="button" class="btn btn-xs" onclick="setZeitraum(\'1h\')" title="Letzte Stunde">1h</button>'
+			.   '<button type="button" class="btn btn-xs" onclick="setZeitraum(\'6h\')" title="Letzte 6 Stunden">6h</button>'
+			.   '<button type="button" class="btn btn-xs" onclick="setZeitraum(\'7d\')" title="Letzte 7 Tage">7T</button>'
+			.   '</div></div>'
 			.   '<div class="grp"><span class="lbl">Von</span>'
-			.   '<input type="text" name="zv" value="' . htmlspecialchars($zeitVon) . '" placeholder="2026-01-01" style="width:95px"></div>'
+			.   '<input type="text" name="zv" id="inp-zv" value="' . htmlspecialchars($zeitVon) . '" placeholder="2026-01-01 00:00" style="width:115px"></div>'
 			.   '<div class="grp"><span class="lbl">Bis</span>'
-			.   '<input type="text" name="zb" value="' . htmlspecialchars($zeitBis) . '" placeholder="2026-12-31" style="width:95px"></div>'
+			.   '<input type="text" name="zb" id="inp-zb" value="' . htmlspecialchars($zeitBis) . '" placeholder="2026-12-31 23:59" style="width:115px"></div>'
 			.   '<div class="grp" style="align-self:flex-end;flex-direction:row;gap:4px">'
 			.   '<button type="submit" class="btn btn-p">&#10003; Filter</button>'
 			.   '<a class="btn btn-r" href="' . $h . '?a=FilterReset">&#10005; Reset</a>'
@@ -969,6 +1001,27 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			. '</tr></thead>'
 			. '<tbody>' . $tbody . '</tbody></table></div>'
 			. '<script>'
+			. 'function pad(n){return String(n).padStart(2,"0");}'
+			. 'function setZeitraum(t){'
+			.   'var now=new Date(),zv="",zb="";'
+			.   'var fmt=function(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+" "+pad(d.getHours())+":"+pad(d.getMinutes());};'
+			.   'if(t==="heute"){zv=now.getFullYear()+"-"+pad(now.getMonth()+1)+"-"+pad(now.getDate());}'
+			.   'else if(t==="1h"){var d=new Date(now-3600000);zv=fmt(d);zb=fmt(now);}'
+			.   'else if(t==="6h"){var d=new Date(now-21600000);zv=fmt(d);zb=fmt(now);}'
+			.   'else if(t==="7d"){var d=new Date(now-604800000);zv=fmt(d);zb=fmt(now);}'
+			.   'var iv=document.getElementById("inp-zv");'
+			.   'var ib=document.getElementById("inp-zb");'
+			.   'if(iv)iv.value=zv;'
+			.   'if(ib)ib.value=zb;'
+			.   'doFilter(null);'
+			. '}'
+			. 'function toggleDetail(row){'
+			.   'var next=row.nextElementSibling;'
+			.   'if(!next||!next.classList.contains("detail-row"))return;'
+			.   'var open=next.style.display==="table-row";'
+			.   'next.style.display=open?"none":"table-row";'
+			.   'row.classList.toggle("open",!open);'
+			. '}'
 			. 'function buildFilterUrl(){'
 			.   'var h="' . $h . '",p="a=FilterAnwenden";'
 			.   'document.querySelectorAll("input.snd-cb:checked").forEach(function(cb){p+="&sf[]="+encodeURIComponent(cb.value);});'
