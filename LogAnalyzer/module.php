@@ -356,8 +356,9 @@ public function ErstelleStatistik(): string
 		$topFehler = array_slice($fehlerCount, 0, 20, true);
 		arsort($senderCount);
 		$topSender = array_slice($senderCount, 0, 12, true);
-		arsort($fehlerGruppen, SORT_REGULAR);
+		uasort($fehlerGruppen, function($a, $b) { return $b['count'] <=> $a['count']; });
 		$topGruppen = array_slice($fehlerGruppen, 0, 8, true);
+		$maxGruppen = $topGruppen ? max(array_column($topGruppen, 'count')) : 1;
 		ksort($tageCount);
 
 		$maxStunden  = max(max($stundenCount) ?: 1, max($stundenCountG) ?: 1);
@@ -485,7 +486,7 @@ public function ErstelleStatistik(): string
 			$topMsg = htmlspecialchars(array_key_first($grp['msgs']));
 			$topMsg = strlen($topMsg) > 80 ? substr($topMsg, 0, 80) . '…' : $topMsg;
 			$varCount = count($grp['msgs']);
-			$pct = (int)round($cnt / max($fehlerGruppen, fn($a,$b)=>$a['count']<=>$b['count']) * 100);
+			$pct = (int)round($cnt / $maxGruppen * 100);
 			$gruppenRows .= '<tr>'
 				. '<td style="color:#f88;font-weight:bold;width:50px;text-align:right">' . $cnt . '×</td>'
 				. '<td style="color:#666;width:60px">' . $varCount . ' Varianten</td>'
