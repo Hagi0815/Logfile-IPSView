@@ -265,7 +265,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		return $this->erstelleHtmlMitLogDatei(null);
 	}
 
-	public function ErstelleStatistik(): string
+public function ErstelleStatistik(): string
 	{
 		$logDatei = $this->leseAktuelleLogDatei();
 		$h = '/hook/LogAnalyzerIPSView_' . $this->InstanceID;
@@ -273,14 +273,25 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			return '<html><body style="background:#1a1a1a;color:#f88;padding:20px">Logdatei nicht gefunden.</body></html>';
 		}
 
-		// Daten einlesen
-		$fehlerCount   = []; // meldung => count
-		$senderCount   = []; // sender => count
-		$stundenCount  = array_fill(0, 24, 0); // 0-23 => count (nur ERROR+WARNING)
-		$stundenMsgs   = array_fill(0, 24, []); // 0-23 => [meldung => count]
-		$typCount      = [];
-		$gesamt        = 0;
-		$heute         = date('Y-m-d');
+		// Daten sammeln
+		$fehlerCount  = [];   // meldung => count (ERROR+WARNING)
+		$fehlerErstmals = []; // meldung => erster Zeitstempel
+		$senderCount  = [];   // sender => count (gesamt)
+		$senderTypCount = []; // sender => [typ => count]
+		$stundenCount = array_fill(0, 24, 0);  // heute: stunde => count (ERROR+WARNING)
+		$stundenCountG = array_fill(0, 24, 0); // gestern: stunde => count
+		$stundenMsgs  = array_fill(0, 24, []); // stunde => [msg => count]
+		$wochentagCount = array_fill(0, 7, 0); // 0=Mo..6=So => count
+		$tageCount    = [];   // YYYY-MM-DD => count (letzte 30 Tage)
+		$typCount     = [];
+		$heatmap      = [];   // wochentag => stunde => count
+		$gesamt       = 0;
+		$heute        = date('Y-m-d');
+		$gestern      = date('Y-m-d', strtotime('-1 day'));
+		$vor30        = date('Y-m-d', strtotime('-30 days'));
+
+		// Für Gruppierung ähnlicher Meldungen
+		$fehlerGruppen = [];  // gruppenKey => [msgs, count]
 
 		$handle = @fopen($logDatei, 'rb');
 		if ($handle) {
@@ -288,144 +299,289 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				$p = $this->parseLogZeile($zeile);
 				if ($p === null) continue;
 				$gesamt++;
-				$typ = strtoupper((string)($p['typ'] ?? ''));
-				$typCount[$typ] = ($typCount[$typ] ?? 0) + 1;
+				$typ    = strtoupper((string)($p['typ'] ?? ''));
 				$sender = (string)($p['sender'] ?? '');
+				$msg    = trim((string)($p['meldung'] ?? ''));
+				$zstamp = (string)($p['zeitstempel'] ?? '');
+
+				$typCount[$typ] = ($typCount[$typ] ?? 0) + 1;
 				$senderCount[$sender] = ($senderCount[$sender] ?? 0) + 1;
+				$senderTypCount[$sender][$typ] = ($senderTypCount[$sender][$typ] ?? 0) + 1;
+
+				// Datum extrahieren
+				preg_match('/(\d{4}-\d{2}-\d{2})/', $zstamp, $dm);
+				$datum = $dm[1] ?? '';
+
+				// Stunden
+				preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm);
+				$stunde = isset($tm[1]) ? (int)$tm[1] : -1;
+
+				// Wochentag (0=Mo..6=So)
+				if ($datum) {
+					$dow = ((int)date('N', strtotime($datum)) - 1); // 0=Mo
+					$wochentagCount[$dow]++;
+					if ($stunde >= 0) {
+						$heatmap[$dow][$stunde] = ($heatmap[$dow][$stunde] ?? 0) + 1;
+					}
+				}
+
+				// Tagesverlauf (letzte 30 Tage)
+				if ($datum >= $vor30) {
+					$tageCount[$datum] = ($tageCount[$datum] ?? 0) + 1;
+				}
+
 				if (in_array($typ, ['ERROR','WARNING'], true)) {
-					$msg = trim((string)($p['meldung'] ?? ''));
 					$fehlerCount[$msg] = ($fehlerCount[$msg] ?? 0) + 1;
-					$zeit = (string)($p['zeitstempel'] ?? '');
-					if (preg_match('/(\d{2}):\d{2}:\d{2}/', $zeit, $m)) {
-						$stunde = (int)$m[1];
+					if (!isset($fehlerErstmals[$msg])) $fehlerErstmals[$msg] = $zstamp;
+
+					// Stunden heute/gestern
+					if ($datum === $heute && $stunde >= 0) {
 						$stundenCount[$stunde]++;
 						$stundenMsgs[$stunde][$msg] = ($stundenMsgs[$stunde][$msg] ?? 0) + 1;
 					}
+					if ($datum === $gestern && $stunde >= 0) {
+						$stundenCountG[$stunde]++;
+					}
+
+					// Fehler-Gruppierung: gemeinsames Präfix (erste 40 Zeichen)
+					$grpKey = preg_replace('/[0-9]+/', 'N', substr($msg, 0, 50));
+					$fehlerGruppen[$grpKey]['count'] = ($fehlerGruppen[$grpKey]['count'] ?? 0) + 1;
+					$fehlerGruppen[$grpKey]['msgs'][$msg] = ($fehlerGruppen[$grpKey]['msgs'][$msg] ?? 0) + 1;
 				}
 			}
 			fclose($handle);
 		}
 
-
-		// Top-Fehler sortieren
 		arsort($fehlerCount);
 		$topFehler = array_slice($fehlerCount, 0, 20, true);
 		arsort($senderCount);
-		$topSender = array_slice($senderCount, 0, 10, true);
+		$topSender = array_slice($senderCount, 0, 12, true);
+		arsort($fehlerGruppen, SORT_REGULAR);
+		$topGruppen = array_slice($fehlerGruppen, 0, 8, true);
+		ksort($tageCount);
 
-		$maxStunden = max($stundenCount) ?: 1;
-		$maxFehler  = $topFehler ? max($topFehler) : 1;
-		$maxSender  = $topSender ? max($topSender) : 1;
+		$maxStunden  = max(max($stundenCount) ?: 1, max($stundenCountG) ?: 1);
+		$maxFehler   = $topFehler ? max($topFehler) : 1;
+		$maxSender   = $topSender ? max($topSender) : 1;
+		$maxTag      = $tageCount ? max($tageCount) : 1;
+		$maxWochentag = max($wochentagCount) ?: 1;
+		$gesamtFehler = ($typCount['ERROR'] ?? 0) + ($typCount['WARNING'] ?? 0);
 
-		// Stunden-Chart (SVG)
-		$svgW = 600; $svgH = 130; $barW = (int)($svgW / 24);
+		$svgW = 700; $svgH = 140; $barW = (int)($svgW / 24);
+
+		// ── Heute vs. Gestern Chart ──────────────────────────────
 		$svgBars = '';
-		// Tooltip wird nach der Schleife ans Ende gehängt (über Balken)
 		for ($i = 0; $i < 24; $i++) {
-			$v = $stundenCount[$i];
-			$bh = $v > 0 ? max(2, (int)round($v / $maxStunden * 90)) : 0;
-			$x = $i * $barW + 1;
-			$y = $svgH - $bh - 22;
-			$farbe = $v > $maxStunden * 0.7 ? '#f66' : ($v > $maxStunden * 0.3 ? '#fa0' : '#5a9');
-			// Häufigste Meldung dieser Stunde ermitteln
+			$vH = $stundenCount[$i];
+			$vG = $stundenCountG[$i];
+			$bhH = $vH > 0 ? max(2, (int)round($vH / $maxStunden * 90)) : 0;
+			$bhG = $vG > 0 ? max(2, (int)round($vG / $maxStunden * 90)) : 0;
+			$x   = $i * $barW;
+			$hG  = $vH || $vG ? $svgH - max($bhH,$bhG) - 22 : 0;
+			$lx  = $x + (int)($barW/2) - 4;
+			// Gestern (grau, hinter heute)
+			if ($bhG > 0) $svgBars .= '<rect x="' . ($x+1) . '" y="' . ($svgH-$bhG-22) . '" width="' . ($barW-2) . '" height="' . $bhG . '" fill="#3a3a3a" rx="2" pointer-events="none"/>';
+			// Heute
+			$fc = $vH > $maxStunden * 0.7 ? '#f66' : ($vH > $maxStunden * 0.3 ? '#fa0' : '#5a9');
+			if ($bhH > 0) $svgBars .= '<rect x="' . ($x+3) . '" y="' . ($svgH-$bhH-22) . '" width="' . ($barW-6) . '" height="' . $bhH . '" fill="' . $fc . '" rx="2" pointer-events="none"/>';
+			// Hover-Rect
 			$topMsg = '';
-			if (!empty($stundenMsgs[$i])) {
-				arsort($stundenMsgs[$i]);
-				$topMsg = array_key_first($stundenMsgs[$i]);
-				if (strlen($topMsg) > 60) $topMsg = substr($topMsg, 0, 60) . '…';
-			}
-			$dH = htmlspecialchars(sprintf('%02d:00', $i), ENT_QUOTES);
-			$dC = $v;
-			$dM = htmlspecialchars($topMsg, ENT_QUOTES);
-			// Transparentes Hover-Rect über ganzer Balkenbreite
-			$svgBars .= '<rect x="' . $x . '" y="0" width="' . ($barW-2) . '" height="' . ($svgH-18) . '" fill="transparent" data-h="' . $dH . '" data-c="' . $dC . '" data-m="' . $dM . '" class="sh" cursor="pointer"/>';
-			if ($bh > 0) $svgBars .= '<rect x="' . $x . '" y="' . $y . '" width="' . ($barW-2) . '" height="' . $bh . '" fill="' . $farbe . '" rx="2" pointer-events="none"/>';
-			$lbl = sprintf('%02d', $i);
-			$lx = $x + (int)($barW/2) - 5;
-			$svgBars .= '<text x="' . $lx . '" y="' . ($svgH-6) . '" font-size="8" fill="#555" pointer-events="none">' . $lbl . '</text>';
-			if ($v > 0) $svgBars .= '<text x="' . $lx . '" y="' . ($y-3) . '" font-size="7" fill="#aaa" pointer-events="none">' . $v . '</text>';
+			if (!empty($stundenMsgs[$i])) { arsort($stundenMsgs[$i]); $topMsg = array_key_first($stundenMsgs[$i]); if (strlen($topMsg)>55) $topMsg=substr($topMsg,0,55).'…'; }
+			$dH2 = htmlspecialchars(sprintf('%02d:00',$i), ENT_QUOTES);
+			$svgBars .= '<rect x="' . $x . '" y="0" width="' . $barW . '" height="' . ($svgH-18) . '" fill="transparent" data-h="' . $dH2 . '" data-c="' . $vH . '" data-g="' . $vG . '" data-m="' . htmlspecialchars($topMsg, ENT_QUOTES) . '" class="sh" cursor="pointer"/>';
+			$svgBars .= '<text x="' . $lx . '" y="' . ($svgH-5) . '" font-size="8" fill="#555" pointer-events="none">' . sprintf('%02d',$i) . '</text>';
+			if ($vH > 0) $svgBars .= '<text x="' . $lx . '" y="' . ($svgH-$bhH-25) . '" font-size="7" fill="#aaa" pointer-events="none">' . $vH . '</text>';
 		}
-		// Tooltip ans Ende der SVG-Daten (liegt so über den Balken)
+		// Tooltip-g ans Ende
+		$svgBars .= '<g id="stunden-tip" visibility="hidden" pointer-events="none">'
+			. '<rect id="stunden-tip-bg" rx="4" fill="#2a2a2a" stroke="#666" stroke-width="1"/>'
+			. '<text id="stunden-tip-h" font-size="10" font-weight="bold" fill="#ffd080"></text>'
+			. '<text id="stunden-tip-m" font-size="8" fill="#bbb"></text>'
+			. '</g>';
 
+		// ── 30-Tage Trend ─────────────────────────────────────────
+		$trendW = 700; $trendH = 100;
+		$tageKeys = [];
+		for ($i = 29; $i >= 0; $i--) $tageKeys[] = date('Y-m-d', strtotime("-{$i} days"));
+		$trendBars = '';
+		$trendBarW = (int)($trendW / 30);
+		foreach ($tageKeys as $idx => $tag) {
+			$v = $tageCount[$tag] ?? 0;
+			$bh = $v > 0 ? max(2, (int)round($v / $maxTag * 70)) : 0;
+			$x  = $idx * $trendBarW;
+			$fc = ($tag === $heute) ? '#f88' : '#5a7a9a';
+			if ($bh > 0) $trendBars .= '<rect x="' . ($x+1) . '" y="' . ($trendH-$bh-20) . '" width="' . ($trendBarW-2) . '" height="' . $bh . '" fill="' . $fc . '" rx="1"/>';
+			// Nur jeden 5. Tag beschriften
+			if ($idx % 5 === 0 || $tag === $heute) {
+				$lbl = date('d.m', strtotime($tag));
+				$trendBars .= '<text x="' . ($x+1) . '" y="' . ($trendH-4) . '" font-size="7" fill="#555">' . $lbl . '</text>';
+			}
+			if ($v > 0 && ($bh > 10)) $trendBars .= '<text x="' . ($x+2) . '" y="' . ($trendH-$bh-22) . '" font-size="7" fill="#888">' . $v . '</text>';
+		}
 
-		// Top-Fehler Tabelle
+		// ── Heatmap (Wochentag × Stunde) ─────────────────────────
+		$hmW = 700; $hmCellW = (int)($hmW / 24); $hmCellH = 22;
+		$hmH = 7 * $hmCellH + 20;
+		$hmMax = 1;
+		foreach ($heatmap as $row) foreach ($row as $v) if ($v > $hmMax) $hmMax = $v;
+		$hmSvg = '';
+		$tage  = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+		for ($d = 0; $d < 7; $d++) {
+			$y = $d * $hmCellH + 12;
+			$hmSvg .= '<text x="2" y="' . ($y+14) . '" font-size="8" fill="#555">' . $tage[$d] . '</text>';
+			for ($h2 = 0; $h2 < 24; $h2++) {
+				$v = $heatmap[$d][$h2] ?? 0;
+				$intensity = $v > 0 ? min(1.0, $v / $hmMax) : 0;
+				$r = (int)(30 + $intensity * 200);
+				$g = (int)(30 + $intensity * 20);
+				$b = (int)(30 + $intensity * 20);
+				$fill = $v > 0 ? sprintf('rgb(%d,%d,%d)', $r, $g, $b) : '#1e1e1e';
+				$cx = 24 + $h2 * $hmCellW;
+				$hmSvg .= '<rect x="' . $cx . '" y="' . $y . '" width="' . ($hmCellW-1) . '" height="' . ($hmCellH-2) . '" fill="' . $fill . '" rx="1">';
+				if ($v > 0) $hmSvg .= '<title>' . $tage[$d] . ' ' . sprintf('%02d:00',$h2) . ' – ' . $v . '</title>';
+				$hmSvg .= '</rect>';
+			}
+		}
+		// Stunden-Labels
+		for ($h2 = 0; $h2 < 24; $h2 += 3) {
+			$hmSvg .= '<text x="' . (24 + $h2*$hmCellW + 1) . '" y="10" font-size="7" fill="#444">' . sprintf('%02d',$h2) . '</text>';
+		}
+
+		// ── Wochentag-Chart ───────────────────────────────────────
+		$wtW = 300; $wtH = 80; $wtBarW = (int)($wtW / 7);
+		$wtSvg = '';
+		for ($d = 0; $d < 7; $d++) {
+			$v = $wochentagCount[$d];
+			$bh = $v > 0 ? max(2, (int)round($v / $maxWochentag * 55)) : 0;
+			$x  = $d * $wtBarW + 2;
+			$fc = ($d >= 5) ? '#7a5a2a' : '#3a6a5a';
+			if ($bh > 0) $wtSvg .= '<rect x="' . $x . '" y="' . ($wtH-$bh-18) . '" width="' . ($wtBarW-4) . '" height="' . $bh . '" fill="' . $fc . '" rx="2"/>';
+			$wtSvg .= '<text x="' . ($x+3) . '" y="' . ($wtH-4) . '" font-size="8" fill="#555">' . $tage[$d] . '</text>';
+			if ($v > 0) $wtSvg .= '<text x="' . ($x+3) . '" y="' . ($wtH-$bh-21) . '" font-size="7" fill="#888">' . $v . '</text>';
+		}
+
+		// ── Top-Fehler Tabelle ────────────────────────────────────
 		$fehlerRows = '';
 		$rank = 1;
 		foreach ($topFehler as $msg => $cnt) {
-			$pct = $maxFehler > 0 ? (int)round($cnt / $maxFehler * 100) : 0;
-			$msgH = htmlspecialchars(strlen($msg) > 100 ? substr($msg, 0, 100) . '…' : $msg);
-			$barColor = $rank <= 3 ? '#f66' : '#fa0';
+			$pct = (int)round($cnt / $maxFehler * 100);
+			$msgH = htmlspecialchars(strlen($msg)>100 ? substr($msg,0,100).'…' : $msg);
+			$erst = htmlspecialchars(substr($fehlerErstmals[$msg] ?? '', 0, 16));
+			$fc2  = $rank <= 3 ? '#f66' : '#fa0';
 			$fehlerRows .= '<tr>'
-				. '<td style="color:#666;width:30px;text-align:right">' . $rank . '</td>'
-				. '<td style="color:#f88;font-weight:bold;width:50px;text-align:right">' . $cnt . '×</td>'
-				. '<td style="padding:0 8px"><div style="background:' . $barColor . ';height:6px;width:' . $pct . '%;border-radius:3px;margin-bottom:2px"></div>' . $msgH . '</td>'
+				. '<td style="color:#666;width:28px;text-align:right">' . $rank . '</td>'
+				. '<td style="color:' . $fc2 . ';font-weight:bold;width:48px;text-align:right">' . $cnt . '×</td>'
+				. '<td style="color:#555;width:110px;font-size:11px">' . $erst . '</td>'
+				. '<td style="padding:0 6px"><div style="background:' . $fc2 . ';height:4px;width:' . $pct . '%;border-radius:2px;margin-bottom:2px"></div>' . $msgH . '</td>'
 				. '</tr>';
 			$rank++;
 		}
 
-		// Top-Sender Tabelle
-		$senderRows = '';
-		foreach ($topSender as $snd => $cnt) {
-			$pct = $maxSender > 0 ? (int)round($cnt / $maxSender * 100) : 0;
-			$sndH = htmlspecialchars($snd);
-			$senderRows .= '<tr>'
-				. '<td style="color:#ffd080;width:120px">' . $sndH . '</td>'
-				. '<td style="color:#aaa;width:50px;text-align:right">' . $cnt . '</td>'
-				. '<td style="padding-left:8px"><div style="background:#5a9;height:6px;width:' . $pct . '%;border-radius:3px"></div></td>'
+		// ── Fehler-Gruppen ────────────────────────────────────────
+		$gruppenRows = '';
+		foreach ($topGruppen as $grpKey => $grp) {
+			$cnt = $grp['count'];
+			arsort($grp['msgs']);
+			$topMsg = htmlspecialchars(array_key_first($grp['msgs']));
+			$topMsg = strlen($topMsg) > 80 ? substr($topMsg, 0, 80) . '…' : $topMsg;
+			$varCount = count($grp['msgs']);
+			$pct = (int)round($cnt / max($fehlerGruppen, fn($a,$b)=>$a['count']<=>$b['count']) * 100);
+			$gruppenRows .= '<tr>'
+				. '<td style="color:#f88;font-weight:bold;width:50px;text-align:right">' . $cnt . '×</td>'
+				. '<td style="color:#666;width:60px">' . $varCount . ' Varianten</td>'
+				. '<td>' . $topMsg . '</td>'
 				. '</tr>';
 		}
 
-		// Typ-Verteilung
+		// ── Sender-Tabelle ────────────────────────────────────────
+		$senderRows = '';
+		$typFarben = ['ERROR'=>'#f66','WARNING'=>'#fa0','DEBUG'=>'#7ecfff','MESSAGE'=>'#888','CUSTOM'=>'#ffcc88','NOTIFY'=>'#d0aaff','SUCCESS'=>'#88ffcc'];
+		foreach ($topSender as $snd => $cnt) {
+			$pct = (int)round($cnt / $maxSender * 100);
+			$sndH = htmlspecialchars($snd);
+			// Typ-Breakdown als kleine farbige Balken
+			$breakdown = '';
+			$sTyps = $senderTypCount[$snd] ?? [];
+			arsort($sTyps);
+			foreach (array_slice($sTyps, 0, 3, true) as $t => $tc) {
+				$fc3 = $typFarben[strtoupper($t)] ?? '#888';
+				$breakdown .= '<span style="color:' . $fc3 . ';font-size:10px;margin-right:4px">' . $t . ':' . $tc . '</span>';
+			}
+			$senderRows .= '<tr>'
+				. '<td style="color:#ffd080;width:130px">' . $sndH . '</td>'
+				. '<td style="color:#aaa;width:45px;text-align:right">' . $cnt . '</td>'
+				. '<td style="padding:0 8px;width:180px"><div style="background:#3a7a5a;height:5px;width:' . $pct . '%;border-radius:2px"></div></td>'
+				. '<td style="font-size:11px">' . $breakdown . '</td>'
+				. '</tr>';
+		}
+
+		// ── Typ-Verteilung ────────────────────────────────────────
 		$typRows = '';
 		arsort($typCount);
 		$maxTyp = $typCount ? max($typCount) : 1;
-		$typFarben = ['ERROR'=>'#f66','WARNING'=>'#fa0','DEBUG'=>'#7ecfff','MESSAGE'=>'#ccc','CUSTOM'=>'#ffcc88','NOTIFY'=>'#d0aaff','SUCCESS'=>'#88ffcc'];
 		foreach ($typCount as $typ => $cnt) {
 			$pct = (int)round($cnt / $maxTyp * 100);
 			$pctGes = $gesamt > 0 ? round($cnt / $gesamt * 100, 1) : 0;
-			$fc = $typFarben[strtoupper($typ)] ?? '#aaa';
+			$fc3 = $typFarben[strtoupper($typ)] ?? '#aaa';
 			$typRows .= '<tr>'
-				. '<td style="color:' . $fc . ';font-weight:bold;width:90px">' . htmlspecialchars($typ) . '</td>'
-				. '<td style="color:#aaa;width:60px;text-align:right">' . $cnt . '</td>'
-				. '<td style="color:#666;width:50px;text-align:right">' . $pctGes . '%</td>'
-				. '<td style="padding-left:8px"><div style="background:' . $fc . ';height:6px;width:' . $pct . '%;border-radius:3px"></div></td>'
+				. '<td style="color:' . $fc3 . ';font-weight:bold;width:90px">' . htmlspecialchars($typ) . '</td>'
+				. '<td style="color:#aaa;width:55px;text-align:right">' . $cnt . '</td>'
+				. '<td style="color:#666;width:45px;text-align:right">' . $pctGes . '%</td>'
+				. '<td style="padding-left:8px"><div style="background:' . $fc3 . ';height:5px;width:' . $pct . '%;border-radius:2px"></div></td>'
 				. '</tr>';
 		}
 
 		$dateiname = htmlspecialchars(basename($logDatei));
 		$ts = date('d.m.Y H:i:s');
-		$gesamtFehler = array_sum(array_filter($typCount, fn($k) => in_array($k, ['ERROR','WARNING']), ARRAY_FILTER_USE_KEY));
 
 		return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">'
 			. '<title>Statistik – ' . $dateiname . '</title>'
 			. '<style>'
 			. '*{box-sizing:border-box;margin:0;padding:0}'
 			. 'body{font-family:Arial,sans-serif;font-size:13px;background:#1a1a1a;color:#ccc;padding:12px}'
-			. 'h2{font-size:15px;color:#ffd080;margin-bottom:12px;border-bottom:1px solid #333;padding-bottom:6px}'
-			. 'h3{font-size:13px;color:#aaa;margin:16px 0 6px;text-transform:uppercase;letter-spacing:.5px}'
-			. '.card{background:#222;border:1px solid #2e2e2e;border-radius:6px;padding:12px;margin-bottom:12px}'
+			. 'h3{font-size:12px;color:#888;margin:0 0 6px;text-transform:uppercase;letter-spacing:.5px}'
+			. '.card{background:#222;border:1px solid #2e2e2e;border-radius:6px;padding:10px 12px;margin-bottom:10px}'
 			. 'table{width:100%;border-collapse:collapse}'
-			. 'tr:hover td{background:#252525}'
+			. 'tr:nth-child(even) td{background:#252525}'
+			. 'tr:hover td{background:#2a2a2a}'
 			. 'td{padding:3px 4px;vertical-align:middle;font-size:12px}'
-			. '.meta{color:#555;font-size:11px;margin-bottom:12px}'
-			. '.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}'
-			. '@media(max-width:700px){.grid{grid-template-columns:1fr}}'
-			. '#chtip{position:fixed;display:none;background:#2a2a2a;border:1px solid #555;border-radius:6px;padding:8px 12px;pointer-events:none;z-index:9999;max-width:320px;box-shadow:0 4px 12px rgba(0,0,0,.5)}'
-			. '#chtip .th{font-weight:bold;color:#ffd080;font-size:13px;margin-bottom:4px}'
-			. '#chtip .tm{color:#bbb;font-size:11px;word-break:break-word}'
+			. '.meta{color:#555;font-size:11px;margin-bottom:10px}'
+			. '.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}'
+			. '.grid3{display:grid;grid-template-columns:2fr 1fr;gap:10px}'
+			. '.legend{display:flex;gap:12px;font-size:11px;margin-top:5px}'
+			. '.ld{width:12px;height:12px;border-radius:2px;display:inline-block;margin-right:3px}'
+			. '#chtip{position:fixed;display:none;background:#2a2a2a;border:1px solid #555;border-radius:6px;padding:8px 12px;pointer-events:none;z-index:9999;max-width:340px;box-shadow:0 4px 12px rgba(0,0,0,.6);font-size:12px}'
+			. '@media(max-width:700px){.grid2,.grid3{grid-template-columns:1fr}}'
 			. '</style></head><body>'
 			. '<div id="chtip"></div>'
-			. '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">'
-			. '<h2 style="margin:0">&#128202; Statistik – ' . $dateiname . '</h2>'
-			. '<a href="' . $h . '" style="background:#2a2a2a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:4px 12px;text-decoration:none;font-size:12px">&#8592; Zurück</a>'
+			. '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">'
+			. '<span style="font-size:15px;color:#ffd080;font-weight:bold">&#128202; Statistik – ' . $dateiname . '</span>'
+			. '<a href="' . $h . '" style="background:#2a2a2a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:3px 10px;text-decoration:none;font-size:12px">&#8592; Zurück</a>'
 			. '</div>'
-			. '<div class="meta">Gesamt: ' . number_format($gesamt) . ' Zeilen &nbsp;|&nbsp; Fehler/Warnings heute: ' . number_format($gesamtFehler) . ' &nbsp;|&nbsp; Stand: ' . $ts . '</div>'
+			. '<div class="meta">Gesamt: ' . number_format($gesamt) . ' Zeilen &nbsp;|&nbsp; Errors/Warnings: ' . number_format($gesamtFehler) . ' &nbsp;|&nbsp; Stand: ' . $ts . '</div>'
+			// Heute vs Gestern
 			. '<div class="card">'
-			. '<h3>&#128200; Errors + Warnings nach Uhrzeit</h3>'
+			. '<h3>&#9202; Errors + Warnings nach Uhrzeit &nbsp;<span style="color:#555;font-size:10px;text-transform:none;font-weight:normal">Heute vs. Gestern</span></h3>'
 			. '<svg viewBox="0 0 ' . $svgW . ' ' . $svgH . '" width="100%" style="background:#1a1a1a;border-radius:4px">' . $svgBars . '</svg>'
+			. '<div class="legend"><span><span class="ld" style="background:#5a9"></span>Heute (niedrig)</span><span><span class="ld" style="background:#fa0"></span>Heute (mittel)</span><span><span class="ld" style="background:#f66"></span>Heute (hoch)</span><span><span class="ld" style="background:#3a3a3a"></span>Gestern</span></div>'
 			. '</div>'
-			. '<div class="grid">'
-			. '<div class="card"><h3>&#9888; Häufigste Fehler (Top 20)</h3><table>' . $fehlerRows . '</table></div>'
+			// 30-Tage Trend
+			. '<div class="card">'
+			. '<h3>&#128200; Verlauf letzte 30 Tage &nbsp;<span style="color:#f88;font-size:10px;text-transform:none">&#9632; Heute</span></h3>'
+			. '<svg viewBox="0 0 ' . $trendW . ' ' . $trendH . '" width="100%" style="background:#1a1a1a;border-radius:4px">' . $trendBars . '</svg>'
+			. '</div>'
+			// Heatmap + Wochentag
+			. '<div class="grid3">'
+			. '<div class="card"><h3>&#128293; Heatmap Wochentag × Uhrzeit</h3>'
+			. '<svg viewBox="0 0 ' . $hmW . ' ' . $hmH . '" width="100%" style="background:#1a1a1a;border-radius:4px">' . $hmSvg . '</svg>'
+			. '</div>'
+			. '<div class="card"><h3>&#128197; Verteilung nach Wochentag</h3>'
+			. '<svg viewBox="0 0 ' . $wtW . ' ' . $wtH . '" width="100%" style="background:#1a1a1a;border-radius:4px">' . $wtSvg . '</svg>'
+			. '</div>'
+			. '</div>'
+			// Fehler + Gruppen
+			. '<div class="grid2">'
+			. '<div class="card"><h3>&#9888; Häufigste Fehler (Top 20) &nbsp;<span style="color:#555;font-size:10px;text-transform:none">Erstauftreten</span></h3><table>' . $fehlerRows . '</table></div>'
 			. '<div>'
 			. '<div class="card"><h3>&#128101; Aktivste Sender</h3><table>' . $senderRows . '</table></div>'
 			. '<div class="card"><h3>&#127381; Typ-Verteilung</h3><table>' . $typRows . '</table></div>'
@@ -436,17 +592,18 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			. 'document.querySelectorAll(".sh").forEach(function(r){'
 			.   'r.addEventListener("mouseenter",function(e){'
 			.     'var c=parseInt(r.getAttribute("data-c")||"0");'
-			.     'if(!c)return;'
-			.     '_t.innerHTML="<b style=\\"color:#ffd080\\">"+r.getAttribute("data-h")+" Uhr &ndash; "+c+" Fehler/Warnings</b>";'
-			.     'var m=r.getAttribute("data-m");'
-			.     'if(m)_t.innerHTML+="<br><span style=\\"color:#bbb;font-size:11px\\">"+m+"</span>";'
+			.     'var g=parseInt(r.getAttribute("data-g")||"0");'
+			.     'if(!c&&!g){_t.style.display="none";return;}'
+			.     '_t.innerHTML="<b style=\"color:#ffd080\">"+r.getAttribute("data-h")+" Uhr</b><br>"'
+			.       '+"Heute: <b style=\"color:#f88\">"+c+"</b> &nbsp; Gestern: <b style=\"color:#888\">"+g+"</b><br>"'
+			.       '+(r.getAttribute("data-m")?"<span style=\"color:#bbb;font-size:11px\">"+r.getAttribute("data-m")+"</span>":"");'
 			.     '_t.style.display="block";'
 			.     '_t.style.left=(e.clientX+14)+"px";'
-			.     '_t.style.top=(e.clientY-8)+"px";'
+			.     '_t.style.top=(e.clientY-10)+"px";'
 			.   '});'
 			.   'r.addEventListener("mousemove",function(e){'
 			.     '_t.style.left=(e.clientX+14)+"px";'
-			.     '_t.style.top=(e.clientY-8)+"px";'
+			.     '_t.style.top=(e.clientY-10)+"px";'
 			.   '});'
 			.   'r.addEventListener("mouseleave",function(){_t.style.display="none";});'
 			. '});'
@@ -780,27 +937,12 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		}
 
 		$fb = '';
-		$rmBase = $h . '?a=FilterAnwenden'
-			. (empty($aktiveTypen) ? '' : '&' . implode('&', array_map(fn($t) => 'ft[]=' . urlencode($t), $aktiveTypen)))
-			. (empty($aktiveSender) ? '' : '&' . implode('&', array_map(fn($s) => 'sf[]=' . urlencode($s), $aktiveSender)))
-			. ($textFilter ? '&tf=' . urlencode(html_entity_decode($textFilter)) : '')
-			. ($objektFilter ? '&oi=' . urlencode(html_entity_decode($objektFilter)) : '')
-			. ($zeitVon ? '&zv=' . urlencode($zeitVon) : '')
-			. ($zeitBis ? '&zb=' . urlencode($zeitBis) : '');
-		foreach ($aktiveTypen as $t) {
-			$rmUrl = str_replace('ft[]=' . urlencode($t) . '&', '', $rmBase);
-			$rmUrl = str_replace('&ft[]=' . urlencode($t), '', $rmUrl);
-			$fb .= '<a class="badge badge-typ" href="' . $rmUrl . '" title="Filter entfernen">Typ: ' . htmlspecialchars($t) . ' ×</a>';
-		}
-		foreach ($aktiveSender as $s) {
-			$rmUrl = str_replace('sf[]=' . urlencode($s) . '&', '', $rmBase);
-			$rmUrl = str_replace('&sf[]=' . urlencode($s), '', $rmUrl);
-			$fb .= '<a class="badge badge-snd" href="' . $rmUrl . '" title="Filter entfernen">Sender: ' . htmlspecialchars($s) . ' ×</a>';
-		}
-		if ($textFilter)   $fb .= '<a class="badge badge-txt" href="' . str_replace('&tf=' . urlencode(html_entity_decode($textFilter)), '', $rmBase) . '" title="Filter entfernen">Text: ' . $textFilter . ' ×</a>';
-		if ($objektFilter) $fb .= '<a class="badge badge-txt" href="' . str_replace('&oi=' . urlencode(html_entity_decode($objektFilter)), '', $rmBase) . '" title="Filter entfernen">ObjID: ' . $objektFilter . ' ×</a>';
-		if ($zeitVon)      $fb .= '<a class="badge badge-time" href="' . str_replace('&zv=' . urlencode($zeitVon), '', $rmBase) . '" title="Filter entfernen">Von: ' . htmlspecialchars($zeitVon) . ' ×</a>';
-		if ($zeitBis)      $fb .= '<a class="badge badge-time" href="' . str_replace('&zb=' . urlencode($zeitBis), '', $rmBase) . '" title="Filter entfernen">Bis: ' . htmlspecialchars($zeitBis) . ' ×</a>';
+		foreach ($aktiveTypen  as $t) $fb .= '<span class="fb">Typ: ' . htmlspecialchars($t) . '</span>';
+		foreach ($aktiveSender as $s) $fb .= '<span class="fb">Sender: ' . htmlspecialchars($s) . '</span>';
+		if ($textFilter)   $fb .= '<span class="fb">Text: ' . $textFilter . '</span>';
+		if ($objektFilter) $fb .= '<span class="fb">ObjID: ' . $objektFilter . '</span>';
+		if ($zeitVon)      $fb .= '<span class="fb">Von: ' . htmlspecialchars($zeitVon) . '</span>';
+		if ($zeitBis)      $fb .= '<span class="fb">Bis: ' . htmlspecialchars($zeitBis) . '</span>';
 		$fb = $fb ?: '<span class="mu">Kein Filter aktiv</span>';
 
 		$disN = ($seite <= 0) ? ' disabled' : '';
@@ -849,24 +991,14 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				} else {
 					$oidCell = $oidRaw;
 				}
-				$zNrVal = $znr++;
-				$tbody .= '<tr class="log-row" onclick="toggleDetail(this)" style="cursor:pointer">'
-					. '<td class="cz" style="color:#444;min-width:30px;text-align:right">' . $zNrVal . '</td>'
+				$tbody .= '<tr>'
+					. '<td class="cz" style="color:#444;min-width:30px;text-align:right">' . $znr++ . '</td>'
 					. '<td class="cz">' . $zeit . '</td>'
 					. '<td class="co">' . $oidCell . '</td>'
 					. '<td class="ct">' . $typLink . '</td>'
 					. '<td class="cs">' . $sndLink . '</td>'
 					. '<td class="cm">' . $msgHtml . '</td>'
-					. '</tr>'
-					. '<tr class="detail-row" style="display:none"><td colspan="6" style="padding:0">'
-					. '<div class="detail-box">'
-					. '<div><span class="dl">Zeit:</span><span>' . $zeit . '</span></div>'
-					. '<div><span class="dl">ObjektID:</span><span>' . $oidCell . '</span></div>'
-					. '<div><span class="dl">Typ:</span><span style="color:' . $fc . ';font-weight:bold">' . htmlspecialchars($typRaw) . '</span></div>'
-					. '<div><span class="dl">Sender:</span><span>' . htmlspecialchars($sndRaw) . '</span></div>'
-					. '<div style="grid-column:1/-1"><span class="dl">Meldung:</span><span style="color:#eee;word-break:break-all">' . htmlspecialchars($msgRaw) . '</span></div>'
-					. '</div>'
-					. '</td></tr>';
+					. '</tr>';
 			}
 		}
 
@@ -887,6 +1019,7 @@ input[type=text]:focus{outline:none;border-color:#666}
 .btn-p{background:#5a3000;border-color:#8a5000;color:#ffd080}.btn-p:hover{background:#7a4000}
 .btn-r{background:#2a1a1a;border-color:#553333;color:#f99}.btn-r:hover{background:#3a2020}
 .btn[disabled]{opacity:.4;pointer-events:none}
+.fb{background:#5a3000;border:1px solid #8a5000;color:#ffd080;border-radius:3px;padding:2px 7px;font-size:var(--fs,12px);margin-right:3px}
 .mu{color:#555;font-size:var(--fs,12px)}
 .meta{padding:5px 10px;font-size:var(--fs,12px);color:#666;background:#1a1a1a;border-bottom:1px solid #2a2a2a;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
 table{width:100%;border-collapse:collapse}
@@ -954,9 +1087,10 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			.   '<input type="text" name="tf" value="' . $textFilter . '" placeholder="Freitext..." style="width:120px"></div>'
 			.   '<div class="grp"><span class="lbl">ObjID</span>'
 			.   '<input type="text" name="oi" value="' . $objektFilter . '" placeholder="ObjektID..." style="width:80px"></div>'
-			.   '</div></div>'
 			.   '<div class="grp"><span class="lbl">Von</span>'
+			.   '<input type="text" name="zv" value="' . htmlspecialchars($zeitVon) . '" placeholder="2026-01-01" style="width:95px"></div>'
 			.   '<div class="grp"><span class="lbl">Bis</span>'
+			.   '<input type="text" name="zb" value="' . htmlspecialchars($zeitBis) . '" placeholder="2026-12-31" style="width:95px"></div>'
 			.   '<div class="grp" style="align-self:flex-end;flex-direction:row;gap:4px">'
 			.   '<button type="submit" class="btn btn-p">&#10003; Filter</button>'
 			.   '<a class="btn btn-r" href="' . $h . '?a=FilterReset">&#10005; Reset</a>'
@@ -974,6 +1108,9 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			. (function() use ($daten) {
 				$tz = is_array($daten['tagesZusammenfassung'] ?? null) ? $daten['tagesZusammenfassung'] : [];
 				$r = '';
+				if (($tz['ERROR']??0)>0)   $r .= '<span style="color:#f66;font-weight:bold" title="Heute">&#9888; '.$tz['ERROR'].' Error'.($tz['ERROR']>1?'s':'').'</span> ';
+				if (($tz['WARNING']??0)>0) $r .= '<span style="color:#fa0" title="Heute">&#9651; '.$tz['WARNING'].' Warning'.($tz['WARNING']>1?'s':'').'</span> ';
+				if (($tz['MESSAGE']??0)>0) $r .= '<span style="color:#888" title="Heute">&#8227; '.$tz['MESSAGE'].' Message'.($tz['MESSAGE']>1?'s':'').'</span> ';
 				return $r ? '<span style="margin-left:8px;padding-left:8px;border-left:1px solid #333">'.trim($r).'</span>' : '';
 			})()
 			. '<span>Treffer:&nbsp;' . $metaTreffer . '</span>'
@@ -989,12 +1126,6 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			. '</tr></thead>'
 			. '<tbody>' . $tbody . '</tbody></table></div>'
 			. '<script>'
-			. 'function toggleDetail(row){'
-			.   'var next=row.nextElementSibling;'
-			.   'if(!next||!next.classList.contains("detail-row"))return;'
-			.   'var open=next.style.display==="table-row";'
-			.   'next.style.display=open?"none":"table-row";'
-			.   'row.classList.toggle("open",!open);'
 			. 'function buildFilterUrl(){'
 			.   'var h="' . $h . '",p="a=FilterAnwenden";'
 			.   'document.querySelectorAll("input.snd-cb:checked").forEach(function(cb){p+="&sf[]="+encodeURIComponent(cb.value);});'
@@ -1004,6 +1135,7 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			.   'var zb=document.querySelector("#filter-form input[name=zb]");if(zb&&zb.value)p+="&zb="+encodeURIComponent(zb.value);'
 			.   'document.querySelectorAll("input.typ-cb:checked").forEach(function(cb){p+="&ft[]="+encodeURIComponent(cb.value);});'
 			.   'return h+"?"+p;'
+			. '}'
 			. 'function submitTypFilter(){location.href=buildFilterUrl();}'
 			. 'function doFilter(e){if(e)e.preventDefault();location.href=buildFilterUrl();return false;}'
 			. '(function(){'
