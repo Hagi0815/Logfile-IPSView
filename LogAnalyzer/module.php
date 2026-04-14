@@ -265,7 +265,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		return $this->erstelleHtmlMitLogDatei(null);
 	}
 
-public function ErstelleStatistik(): string
+	public function ErstelleStatistik(): string
 	{
 		$logDatei = $this->leseAktuelleLogDatei();
 		$h = '/hook/LogAnalyzerIPSView_' . $this->InstanceID;
@@ -273,25 +273,24 @@ public function ErstelleStatistik(): string
 			return '<html><body style="background:#1a1a1a;color:#f88;padding:20px">Logdatei nicht gefunden.</body></html>';
 		}
 
-		// Daten sammeln
-		$fehlerCount  = [];   // meldung => count (ERROR+WARNING)
-		$fehlerErstmals = []; // meldung => erster Zeitstempel
-		$senderCount  = [];   // sender => count (gesamt)
-		$senderTypCount = []; // sender => [typ => count]
-		$stundenCount = array_fill(0, 24, 0);  // heute: stunde => count (ERROR+WARNING)
-		$stundenCountG = array_fill(0, 24, 0); // gestern: stunde => count
-		$stundenMsgs  = array_fill(0, 24, []); // stunde => [msg => count]
-		$wochentagCount = array_fill(0, 7, 0); // 0=Mo..6=So => count
-		$tageCount    = [];   // YYYY-MM-DD => count (letzte 30 Tage)
-		$typCount     = [];
-		$heatmap      = [];   // wochentag => stunde => count
-		$gesamt       = 0;
-		$heute        = date('Y-m-d');
-		$gestern      = date('Y-m-d', strtotime('-1 day'));
-		$vor30        = date('Y-m-d', strtotime('-30 days'));
-
-		// Für Gruppierung ähnlicher Meldungen
-		$fehlerGruppen = [];  // gruppenKey => [msgs, count]
+		// ── Daten sammeln ─────────────────────────────────────────
+		$fehlerCount    = [];
+		$fehlerErstmals = [];
+		$senderCount    = [];
+		$senderTypCount = [];
+		$stundenCount   = array_fill(0, 24, 0);
+		$stundenCountG  = array_fill(0, 24, 0);
+		$stundenMsgs    = array_fill(0, 24, []);
+		$wochentagCount = array_fill(0, 7, 0);
+		$tageCount      = [];
+		$typCount       = [];
+		$heatmap        = [];
+		$fehlerGruppen  = [];
+		$gesamt = 0;
+		$heute   = date('Y-m-d');
+		$gestern = date('Y-m-d', strtotime('-1 day'));
+		$vor30   = date('Y-m-d', strtotime('-30 days'));
+		$tage    = ['Mo','Di','Mi','Do','Fr','Sa','So'];
 
 		$handle = @fopen($logDatei, 'rb');
 		if ($handle) {
@@ -308,35 +307,30 @@ public function ErstelleStatistik(): string
 				$senderCount[$sender] = ($senderCount[$sender] ?? 0) + 1;
 				$senderTypCount[$sender][$typ] = ($senderTypCount[$sender][$typ] ?? 0) + 1;
 
-				// Datum extrahieren (Format: DD.MM.YYYY HH:MM:SS)
+				// Datum: DD.MM.YYYY -> YYYY-MM-DD
 				$datum = '';
 				if (preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) {
-					$datum = $dm[3] . '-' . $dm[2] . '-' . $dm[1]; // -> YYYY-MM-DD
+					$datum = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
 				}
 
-				// Stunden
+				// Uhrzeit
 				preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm);
 				$stunde = isset($tm[1]) ? (int)$tm[1] : -1;
 
-				// Wochentag (0=Mo..6=So)
 				if ($datum) {
-					$dow = ((int)date('N', strtotime($datum)) - 1); // 0=Mo
+					$dow = ((int)date('N', strtotime($datum)) - 1);
 					$wochentagCount[$dow]++;
 					if ($stunde >= 0) {
 						$heatmap[$dow][$stunde] = ($heatmap[$dow][$stunde] ?? 0) + 1;
 					}
-				}
-
-				// Tagesverlauf (letzte 30 Tage)
-				if ($datum >= $vor30) {
-					$tageCount[$datum] = ($tageCount[$datum] ?? 0) + 1;
+					if ($datum >= $vor30) {
+						$tageCount[$datum] = ($tageCount[$datum] ?? 0) + 1;
+					}
 				}
 
 				if (in_array($typ, ['ERROR','WARNING'], true)) {
 					$fehlerCount[$msg] = ($fehlerCount[$msg] ?? 0) + 1;
 					if (!isset($fehlerErstmals[$msg])) $fehlerErstmals[$msg] = $zstamp;
-
-					// Stunden heute/gestern
 					if ($datum === $heute && $stunde >= 0) {
 						$stundenCount[$stunde]++;
 						$stundenMsgs[$stunde][$msg] = ($stundenMsgs[$stunde][$msg] ?? 0) + 1;
@@ -344,8 +338,6 @@ public function ErstelleStatistik(): string
 					if ($datum === $gestern && $stunde >= 0) {
 						$stundenCountG[$stunde]++;
 					}
-
-					// Fehler-Gruppierung: gemeinsames Präfix (erste 40 Zeichen)
 					$grpKey = preg_replace('/[0-9]+/', 'N', substr($msg, 0, 50));
 					$fehlerGruppen[$grpKey]['count'] = ($fehlerGruppen[$grpKey]['count'] ?? 0) + 1;
 					$fehlerGruppen[$grpKey]['msgs'][$msg] = ($fehlerGruppen[$grpKey]['msgs'][$msg] ?? 0) + 1;
@@ -355,241 +347,300 @@ public function ErstelleStatistik(): string
 		}
 
 		arsort($fehlerCount);
-		$topFehler = array_slice($fehlerCount, 0, 20, true);
+		$topFehler = array_slice($fehlerCount, 0, 25, true);
 		arsort($senderCount);
-		$topSender = array_slice($senderCount, 0, 12, true);
-		uasort($fehlerGruppen, function($a, $b) { return $b['count'] <=> $a['count']; });
-		$topGruppen = array_slice($fehlerGruppen, 0, 8, true);
-		$maxGruppen = $topGruppen ? max(array_column($topGruppen, 'count')) : 1;
+		$topSender = array_slice($senderCount, 0, 15, true);
+		uasort($fehlerGruppen, fn($a,$b) => $b['count'] <=> $a['count']);
+		$topGruppen  = array_slice($fehlerGruppen, 0, 10, true);
+		$maxGruppen  = $topGruppen ? max(array_column($topGruppen, 'count')) : 1;
 		ksort($tageCount);
 
-		$maxStunden  = max(max($stundenCount) ?: 1, max($stundenCountG) ?: 1);
-		$maxFehler   = $topFehler ? max($topFehler) : 1;
-		$maxSender   = $topSender ? max($topSender) : 1;
-		$maxTag      = $tageCount ? max($tageCount) : 1;
+		$maxStunden   = max(max($stundenCount) ?: 1, max($stundenCountG) ?: 1);
+		$maxFehler    = $topFehler ? max($topFehler) : 1;
+		$maxSender    = $topSender ? max($topSender) : 1;
 		$maxWochentag = max($wochentagCount) ?: 1;
 		$gesamtFehler = ($typCount['ERROR'] ?? 0) + ($typCount['WARNING'] ?? 0);
+		$typFarben    = ['ERROR'=>'#f66','WARNING'=>'#fa0','DEBUG'=>'#7ecfff','MESSAGE'=>'#888','CUSTOM'=>'#ffcc88','NOTIFY'=>'#d0aaff','SUCCESS'=>'#88ffcc'];
 
-		$svgW = 700; $svgH = 140; $barW = (int)($svgW / 24);
-
-		// ── Heute vs. Gestern Chart ──────────────────────────────
+		// ── Chart 1: Heute vs. Gestern ────────────────────────────
+		$svgW = 700; $svgH = 150; $barW = (int)($svgW / 24);
+		$chartH = $svgH - 30; // Platz für X-Achse + Y-Achse Labels
 		$svgBars = '';
+		// Y-Achse Linien
+		for ($yi = 1; $yi <= 4; $yi++) {
+			$yv = (int)round($maxStunden * $yi / 4);
+			$yy = $svgH - 22 - (int)round($chartH * $yi / 4);
+			$svgBars .= '<line x1="22" y1="' . $yy . '" x2="' . $svgW . '" y2="' . $yy . '" stroke="#2a2a2a" stroke-width="1"/>';
+			$svgBars .= '<text x="20" y="' . ($yy+3) . '" font-size="7" fill="#444" text-anchor="end">' . $yv . '</text>';
+		}
 		for ($i = 0; $i < 24; $i++) {
 			$vH = $stundenCount[$i];
 			$vG = $stundenCountG[$i];
-			$bhH = $vH > 0 ? max(2, (int)round($vH / $maxStunden * 90)) : 0;
-			$bhG = $vG > 0 ? max(2, (int)round($vG / $maxStunden * 90)) : 0;
-			$x   = $i * $barW;
-			$hG  = $vH || $vG ? $svgH - max($bhH,$bhG) - 22 : 0;
-			$lx  = $x + (int)($barW/2) - 4;
-			// Gestern (grau, hinter heute)
-			if ($bhG > 0) $svgBars .= '<rect x="' . ($x+1) . '" y="' . ($svgH-$bhG-22) . '" width="' . ($barW-2) . '" height="' . $bhG . '" fill="#3a3a3a" rx="2" pointer-events="none"/>';
+			$bhH = $vH > 0 ? max(2, (int)round($vH / $maxStunden * $chartH)) : 0;
+			$bhG = $vG > 0 ? max(2, (int)round($vG / $maxStunden * $chartH)) : 0;
+			$x  = 22 + $i * (int)(($svgW - 22) / 24);
+			$bw = (int)(($svgW - 22) / 24);
+			$lx = $x + (int)($bw/2) - 4;
+			// Gestern
+			if ($bhG > 0) $svgBars .= '<rect x="' . ($x+1) . '" y="' . ($svgH-$bhG-22) . '" width="' . ($bw-2) . '" height="' . $bhG . '" fill="#3a3a3a" rx="2" pointer-events="none"/>';
 			// Heute
 			$fc = $vH > $maxStunden * 0.7 ? '#f66' : ($vH > $maxStunden * 0.3 ? '#fa0' : '#5a9');
-			if ($bhH > 0) $svgBars .= '<rect x="' . ($x+3) . '" y="' . ($svgH-$bhH-22) . '" width="' . ($barW-6) . '" height="' . $bhH . '" fill="' . $fc . '" rx="2" pointer-events="none"/>';
-			// Hover-Rect
+			if ($bhH > 0) $svgBars .= '<rect x="' . ($x+3) . '" y="' . ($svgH-$bhH-22) . '" width="' . ($bw-6) . '" height="' . $bhH . '" fill="' . $fc . '" rx="2" pointer-events="none"/>';
+			// Hover
 			$topMsg = '';
-			if (!empty($stundenMsgs[$i])) { arsort($stundenMsgs[$i]); $topMsg = array_key_first($stundenMsgs[$i]); if (strlen($topMsg)>55) $topMsg=substr($topMsg,0,55).'…'; }
-			$dH2 = htmlspecialchars(sprintf('%02d:00',$i), ENT_QUOTES);
-			$svgBars .= '<rect x="' . $x . '" y="0" width="' . $barW . '" height="' . ($svgH-18) . '" fill="transparent" data-h="' . $dH2 . '" data-c="' . $vH . '" data-g="' . $vG . '" data-m="' . htmlspecialchars($topMsg, ENT_QUOTES) . '" class="sh" cursor="pointer"/>';
-			$svgBars .= '<text x="' . $lx . '" y="' . ($svgH-5) . '" font-size="8" fill="#555" pointer-events="none">' . sprintf('%02d',$i) . '</text>';
-			if ($vH > 0) $svgBars .= '<text x="' . $lx . '" y="' . ($svgH-$bhH-25) . '" font-size="7" fill="#aaa" pointer-events="none">' . $vH . '</text>';
+			if (!empty($stundenMsgs[$i])) { arsort($stundenMsgs[$i]); $topMsg = array_key_first($stundenMsgs[$i]); if (strlen($topMsg)>60) $topMsg=substr($topMsg,0,60).'…'; }
+			$svgBars .= '<rect x="' . $x . '" y="0" width="' . $bw . '" height="' . ($svgH-18) . '" fill="transparent" data-h="' . sprintf('%02d:00',$i) . '" data-c="' . $vH . '" data-g="' . $vG . '" data-m="' . htmlspecialchars($topMsg, ENT_QUOTES) . '" class="sh" cursor="pointer"/>';
+			$svgBars .= '<text x="' . $lx . '" y="' . ($svgH-5) . '" font-size="8" fill="#444">' . sprintf('%02d',$i) . '</text>';
+			if ($vH > 0) $svgBars .= '<text x="' . $lx . '" y="' . ($svgH-$bhH-25) . '" font-size="7" fill="#aaa">' . $vH . '</text>';
 		}
-		// Tooltip-g ans Ende
 		$svgBars .= '<g id="stunden-tip" visibility="hidden" pointer-events="none">'
-			. '<rect id="stunden-tip-bg" rx="4" fill="#2a2a2a" stroke="#666" stroke-width="1"/>'
+			. '<rect id="stunden-tip-bg" rx="4" fill="#1e1e2a" stroke="#555" stroke-width="1"/>'
 			. '<text id="stunden-tip-h" font-size="10" font-weight="bold" fill="#ffd080"></text>'
-			. '<text id="stunden-tip-m" font-size="8" fill="#bbb"></text>'
+			. '<text id="stunden-tip-c" font-size="9" fill="#f88"></text>'
+			. '<text id="stunden-tip-g" font-size="9" fill="#555"></text>'
+			. '<text id="stunden-tip-m" font-size="8" fill="#999"></text>'
 			. '</g>';
 
-		// ── 30-Tage Trend ─────────────────────────────────────────
-		$trendW = 700; $trendH = 100;
+		// ── Chart 2: 30-Tage Trend (log-Skalierung) ──────────────
+		$trendW = 700; $trendH = 120;
+		$tChartH = $trendH - 30;
 		$tageKeys = [];
 		for ($i = 29; $i >= 0; $i--) $tageKeys[] = date('Y-m-d', strtotime("-{$i} days"));
 		$trendBars = '';
-		$trendBarW = (int)($trendW / 30);
+		$trendBarW = (int)(($trendW - 35) / 30);
+		$maxTagLog = $tageCount ? log(max($tageCount) + 1, 10) : 1;
+		if ($maxTagLog < 0.01) $maxTagLog = 1;
+		// Y-Achse (log)
+		$maxTagVal = $tageCount ? max($tageCount) : 0;
+		foreach ([1, 10, 100, 1000, 10000] as $yl) {
+			if ($yl > $maxTagVal * 1.2) break;
+			$yy = $trendH - 20 - (int)round(log($yl+1,10) / $maxTagLog * $tChartH);
+			$trendBars .= '<line x1="33" y1="' . $yy . '" x2="' . $trendW . '" y2="' . $yy . '" stroke="#2a2a2a" stroke-width="1"/>';
+			$trendBars .= '<text x="31" y="' . ($yy+3) . '" font-size="6" fill="#444" text-anchor="end">' . $yl . '</text>';
+		}
 		foreach ($tageKeys as $idx => $tag) {
 			$v = $tageCount[$tag] ?? 0;
-			$bh = $v > 0 ? max(2, (int)round($v / $maxTag * 70)) : 0;
-			$x  = $idx * $trendBarW;
-			$fc = ($tag === $heute) ? '#f88' : '#5a7a9a';
-			if ($bh > 0) $trendBars .= '<rect x="' . ($x+1) . '" y="' . ($trendH-$bh-20) . '" width="' . ($trendBarW-2) . '" height="' . $bh . '" fill="' . $fc . '" rx="1"/>';
-			// Nur jeden 5. Tag beschriften
+			$bh = $v > 0 ? max(2, (int)round(log($v+1,10) / $maxTagLog * $tChartH)) : 0;
+			$x  = 34 + $idx * $trendBarW;
+			$fc = ($tag === $heute) ? '#f88' : ($tag === $gestern ? '#fa8' : '#4a6a8a');
+			if ($bh > 0) $trendBars .= '<rect x="' . ($x+1) . '" y="' . ($trendH-$bh-20) . '" width="' . ($trendBarW-2) . '" height="' . $bh . '" fill="' . $fc . '" rx="1">'
+				. '<title>' . date('d.m.Y', strtotime($tag)) . ': ' . $v . ' Einträge</title>'
+				. '</rect>';
 			if ($idx % 5 === 0 || $tag === $heute) {
 				$lbl = date('d.m', strtotime($tag));
-				$trendBars .= '<text x="' . ($x+1) . '" y="' . ($trendH-4) . '" font-size="7" fill="#555">' . $lbl . '</text>';
+				$trendBars .= '<text x="' . ($x+1) . '" y="' . ($trendH-4) . '" font-size="7" fill="#444">' . $lbl . '</text>';
 			}
-			if ($v > 0 && ($bh > 10)) $trendBars .= '<text x="' . ($x+2) . '" y="' . ($trendH-$bh-22) . '" font-size="7" fill="#888">' . $v . '</text>';
+			if ($v > 0 && $bh > 12) $trendBars .= '<text x="' . ($x+2) . '" y="' . ($trendH-$bh-22) . '" font-size="6" fill="#666">' . $v . '</text>';
 		}
 
-		// ── Heatmap (Wochentag × Stunde) ─────────────────────────
-		$hmW = 700; $hmCellW = (int)($hmW / 24); $hmCellH = 22;
-		$hmH = 7 * $hmCellH + 20;
+		// ── Chart 3: Heatmap ──────────────────────────────────────
+		$hmW = 700; $hmCellW = (int)(($hmW - 24) / 24); $hmCellH = 24;
+		$hmH = 7 * $hmCellH + 24;
 		$hmMax = 1;
 		foreach ($heatmap as $row) foreach ($row as $v) if ($v > $hmMax) $hmMax = $v;
 		$hmSvg = '';
-		$tage  = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+		// Stunden-Labels oben
+		for ($h2 = 0; $h2 < 24; $h2 += 3) {
+			$hmSvg .= '<text x="' . (24 + $h2*$hmCellW + 2) . '" y="10" font-size="7" fill="#444">' . sprintf('%02d',$h2) . '</text>';
+		}
 		for ($d = 0; $d < 7; $d++) {
-			$y = $d * $hmCellH + 12;
-			$hmSvg .= '<text x="2" y="' . ($y+14) . '" font-size="8" fill="#555">' . $tage[$d] . '</text>';
+			$y = $d * $hmCellH + 14;
+			$hmSvg .= '<text x="20" y="' . ($y+15) . '" font-size="8" fill="#666" text-anchor="end">' . $tage[$d] . '</text>';
 			for ($h2 = 0; $h2 < 24; $h2++) {
 				$v = $heatmap[$d][$h2] ?? 0;
-				$intensity = $v > 0 ? min(1.0, $v / $hmMax) : 0;
-				$r = (int)(30 + $intensity * 200);
-				$g = (int)(30 + $intensity * 20);
-				$b = (int)(30 + $intensity * 20);
-				$fill = $v > 0 ? sprintf('rgb(%d,%d,%d)', $r, $g, $b) : '#1e1e1e';
 				$cx = 24 + $h2 * $hmCellW;
-				$hmSvg .= '<rect x="' . $cx . '" y="' . $y . '" width="' . ($hmCellW-1) . '" height="' . ($hmCellH-2) . '" fill="' . $fill . '" rx="1">';
-				if ($v > 0) $hmSvg .= '<title>' . $tage[$d] . ' ' . sprintf('%02d:00',$h2) . ' – ' . $v . '</title>';
-				$hmSvg .= '</rect>';
+				if ($v > 0) {
+					$intensity = min(1.0, $v / $hmMax);
+					$r = (int)(40 + $intensity * 190);
+					$g = (int)(10 + $intensity * 10);
+					$b = (int)(10 + $intensity * 10);
+					$fill = sprintf('rgb(%d,%d,%d)', $r, $g, $b);
+					$hmSvg .= '<rect x="' . $cx . '" y="' . $y . '" width="' . ($hmCellW-1) . '" height="' . ($hmCellH-2) . '" fill="' . $fill . '" rx="1">'
+						. '<title>' . $tage[$d] . ' ' . sprintf('%02d:00',$h2) . ': ' . $v . '</title>'
+						. '</rect>';
+					// Zahl in Zelle wenn breit genug
+					if ($hmCellW >= 20) {
+						$textCol = $intensity > 0.6 ? '#fff' : '#aaa';
+						$hmSvg .= '<text x="' . ($cx + (int)($hmCellW/2)) . '" y="' . ($y+15) . '" font-size="7" fill="' . $textCol . '" text-anchor="middle" pointer-events="none">' . $v . '</text>';
+					}
+				} else {
+					$hmSvg .= '<rect x="' . $cx . '" y="' . $y . '" width="' . ($hmCellW-1) . '" height="' . ($hmCellH-2) . '" fill="#1e1e1e" rx="1"/>';
+				}
 			}
 		}
-		// Stunden-Labels
-		for ($h2 = 0; $h2 < 24; $h2 += 3) {
-			$hmSvg .= '<text x="' . (24 + $h2*$hmCellW + 1) . '" y="10" font-size="7" fill="#444">' . sprintf('%02d',$h2) . '</text>';
-		}
 
-		// ── Wochentag-Chart ───────────────────────────────────────
-		$wtW = 300; $wtH = 80; $wtBarW = (int)($wtW / 7);
+		// ── Chart 4: Wochentag ────────────────────────────────────
+		$wtW = 300; $wtH = 120;
+		$wtChartH = $wtH - 30;
+		$wtBarW = (int)(($wtW - 20) / 7);
 		$wtSvg = '';
+		// Y-Achse
+		for ($yi = 1; $yi <= 3; $yi++) {
+			$yv = (int)round($maxWochentag * $yi / 3);
+			$yy = $wtH - 20 - (int)round($wtChartH * $yi / 3);
+			$wtSvg .= '<line x1="18" y1="' . $yy . '" x2="' . $wtW . '" y2="' . $yy . '" stroke="#2a2a2a" stroke-width="1"/>';
+			$wtSvg .= '<text x="16" y="' . ($yy+3) . '" font-size="6" fill="#444" text-anchor="end">' . $yv . '</text>';
+		}
 		for ($d = 0; $d < 7; $d++) {
 			$v = $wochentagCount[$d];
-			$bh = $v > 0 ? max(2, (int)round($v / $maxWochentag * 55)) : 0;
-			$x  = $d * $wtBarW + 2;
-			$fc = ($d >= 5) ? '#7a5a2a' : '#3a6a5a';
-			if ($bh > 0) $wtSvg .= '<rect x="' . $x . '" y="' . ($wtH-$bh-18) . '" width="' . ($wtBarW-4) . '" height="' . $bh . '" fill="' . $fc . '" rx="2"/>';
-			$wtSvg .= '<text x="' . ($x+3) . '" y="' . ($wtH-4) . '" font-size="8" fill="#555">' . $tage[$d] . '</text>';
-			if ($v > 0) $wtSvg .= '<text x="' . ($x+3) . '" y="' . ($wtH-$bh-21) . '" font-size="7" fill="#888">' . $v . '</text>';
+			$bh = $v > 0 ? max(2, (int)round($v / $maxWochentag * $wtChartH)) : 0;
+			$x  = 20 + $d * $wtBarW;
+			$fc = $d >= 5 ? '#7a5a2a' : '#3a6a5a';
+			if ($bh > 0) {
+				$wtSvg .= '<rect x="' . ($x+2) . '" y="' . ($wtH-$bh-20) . '" width="' . ($wtBarW-4) . '" height="' . $bh . '" fill="' . $fc . '" rx="2">'
+					. '<title>' . $tage[$d] . ': ' . $v . '</title>'
+					. '</rect>';
+				if ($bh > 14) $wtSvg .= '<text x="' . ($x + (int)($wtBarW/2)) . '" y="' . ($wtH-$bh-22) . '" font-size="7" fill="#888" text-anchor="middle">' . $v . '</text>';
+			}
+			$wtSvg .= '<text x="' . ($x + (int)($wtBarW/2)) . '" y="' . ($wtH-5) . '" font-size="8" fill="#555" text-anchor="middle">' . $tage[$d] . '</text>';
 		}
 
-		// ── Top-Fehler Tabelle ────────────────────────────────────
+		// ── Tabelle: Top-Fehler ───────────────────────────────────
 		$fehlerRows = '';
 		$rank = 1;
 		foreach ($topFehler as $msg => $cnt) {
-			$pct = (int)round($cnt / $maxFehler * 100);
-			$msgH = htmlspecialchars(strlen($msg)>100 ? substr($msg,0,100).'…' : $msg);
-			$erst = htmlspecialchars(substr($fehlerErstmals[$msg] ?? '', 0, 16));
-			$fc2  = $rank <= 3 ? '#f66' : '#fa0';
-			$fehlerRows .= '<tr>'
-				. '<td style="color:#666;width:28px;text-align:right">' . $rank . '</td>'
-				. '<td style="color:' . $fc2 . ';font-weight:bold;width:48px;text-align:right">' . $cnt . '×</td>'
-				. '<td style="color:#555;width:110px;font-size:11px">' . $erst . '</td>'
-				. '<td style="padding:0 6px"><div style="background:' . $fc2 . ';height:4px;width:' . $pct . '%;border-radius:2px;margin-bottom:2px"></div>' . $msgH . '</td>'
+			$pct    = (int)round($cnt / $maxFehler * 100);
+			$msgH   = htmlspecialchars(strlen($msg)>120 ? substr($msg,0,120).'…' : $msg);
+			$erst   = htmlspecialchars(substr($fehlerErstmals[$msg] ?? '', 0, 16));
+			$fc2    = $rank <= 3 ? '#f66' : ($rank <= 8 ? '#fa0' : '#888');
+			$bgRank = $rank <= 3 ? 'background:#1a0a0a' : '';
+			$fehlerRows .= '<tr style="' . $bgRank . '">'
+				. '<td style="color:#444;width:24px;text-align:right;padding-right:6px">' . $rank . '</td>'
+				. '<td style="color:' . $fc2 . ';font-weight:bold;width:45px;text-align:right">' . $cnt . '×</td>'
+				. '<td style="color:#555;width:115px;font-size:11px;padding:0 6px">' . $erst . '</td>'
+				. '<td><div style="background:' . $fc2 . ';opacity:0.7;height:3px;width:' . $pct . '%;border-radius:2px;margin-bottom:3px"></div>'
+				. '<span style="font-size:11px;color:#bbb">' . $msgH . '</span></td>'
 				. '</tr>';
 			$rank++;
 		}
 
-		// ── Fehler-Gruppen ────────────────────────────────────────
+		// ── Tabelle: Fehler-Gruppen ───────────────────────────────
 		$gruppenRows = '';
 		foreach ($topGruppen as $grpKey => $grp) {
-			$cnt = $grp['count'];
-			arsort($grp['msgs']);
-			$topMsg = htmlspecialchars(array_key_first($grp['msgs']));
-			$topMsg = strlen($topMsg) > 80 ? substr($topMsg, 0, 80) . '…' : $topMsg;
+			$cnt      = $grp['count'];
 			$varCount = count($grp['msgs']);
-			$pct = (int)round($cnt / $maxGruppen * 100);
+			arsort($grp['msgs']);
+			$topMsg = htmlspecialchars(substr(array_key_first($grp['msgs']), 0, 90));
+			$pct    = (int)round($cnt / $maxGruppen * 100);
 			$gruppenRows .= '<tr>'
-				. '<td style="color:#f88;font-weight:bold;width:50px;text-align:right">' . $cnt . '×</td>'
-				. '<td style="color:#666;width:60px">' . $varCount . ' Varianten</td>'
-				. '<td>' . $topMsg . '</td>'
+				. '<td style="color:#f88;font-weight:bold;width:45px;text-align:right">' . $cnt . '×</td>'
+				. '<td style="color:#666;width:80px;font-size:11px">' . $varCount . ' Varianten</td>'
+				. '<td><div style="background:#f66;opacity:0.5;height:3px;width:' . $pct . '%;border-radius:2px;margin-bottom:3px"></div>'
+				. '<span style="font-size:11px;color:#bbb">' . $topMsg . '</span></td>'
 				. '</tr>';
 		}
 
-		// ── Sender-Tabelle ────────────────────────────────────────
+		// ── Tabelle: Sender ───────────────────────────────────────
 		$senderRows = '';
-		$typFarben = ['ERROR'=>'#f66','WARNING'=>'#fa0','DEBUG'=>'#7ecfff','MESSAGE'=>'#888','CUSTOM'=>'#ffcc88','NOTIFY'=>'#d0aaff','SUCCESS'=>'#88ffcc'];
 		foreach ($topSender as $snd => $cnt) {
-			$pct = (int)round($cnt / $maxSender * 100);
+			$pct  = (int)round($cnt / $maxSender * 100);
 			$sndH = htmlspecialchars($snd);
-			// Typ-Breakdown als kleine farbige Balken
 			$breakdown = '';
 			$sTyps = $senderTypCount[$snd] ?? [];
 			arsort($sTyps);
-			foreach (array_slice($sTyps, 0, 3, true) as $t => $tc) {
+			foreach (array_slice($sTyps, 0, 4, true) as $t => $tc) {
 				$fc3 = $typFarben[strtoupper($t)] ?? '#888';
-				$breakdown .= '<span style="color:' . $fc3 . ';font-size:10px;margin-right:4px">' . $t . ':' . $tc . '</span>';
+				$breakdown .= '<span style="color:' . $fc3 . ';font-size:10px;margin-right:5px">' . $t . ':&nbsp;' . $tc . '</span>';
 			}
+			$errCnt = ($senderTypCount[$snd]['ERROR'] ?? 0);
+			$warnCnt = ($senderTypCount[$snd]['WARNING'] ?? 0);
+			$errStyle = ($errCnt > 0) ? 'color:#f66' : 'color:#333';
 			$senderRows .= '<tr>'
 				. '<td style="color:#ffd080;width:130px">' . $sndH . '</td>'
 				. '<td style="color:#aaa;width:45px;text-align:right">' . $cnt . '</td>'
-				. '<td style="padding:0 8px;width:180px"><div style="background:#3a7a5a;height:5px;width:' . $pct . '%;border-radius:2px"></div></td>'
+				. '<td style="' . $errStyle . ';width:40px;text-align:right;font-size:11px">' . ($errCnt > 0 ? '⚠ '.$errCnt : '') . '</td>'
+				. '<td style="padding:0 6px;width:150px"><div style="background:#3a7a5a;height:4px;width:' . $pct . '%;border-radius:2px"></div></td>'
 				. '<td style="font-size:11px">' . $breakdown . '</td>'
 				. '</tr>';
 		}
 
-		// ── Typ-Verteilung ────────────────────────────────────────
+		// ── Tabelle: Typ-Verteilung ───────────────────────────────
 		$typRows = '';
 		arsort($typCount);
 		$maxTyp = $typCount ? max($typCount) : 1;
 		foreach ($typCount as $typ => $cnt) {
-			$pct = (int)round($cnt / $maxTyp * 100);
+			$pct    = (int)round($cnt / $maxTyp * 100);
 			$pctGes = $gesamt > 0 ? round($cnt / $gesamt * 100, 1) : 0;
-			$fc3 = $typFarben[strtoupper($typ)] ?? '#aaa';
+			$fc3    = $typFarben[strtoupper($typ)] ?? '#aaa';
 			$typRows .= '<tr>'
 				. '<td style="color:' . $fc3 . ';font-weight:bold;width:90px">' . htmlspecialchars($typ) . '</td>'
-				. '<td style="color:#aaa;width:55px;text-align:right">' . $cnt . '</td>'
-				. '<td style="color:#666;width:45px;text-align:right">' . $pctGes . '%</td>'
-				. '<td style="padding-left:8px"><div style="background:' . $fc3 . ';height:5px;width:' . $pct . '%;border-radius:2px"></div></td>'
+				. '<td style="color:#aaa;width:55px;text-align:right">' . number_format($cnt) . '</td>'
+				. '<td style="color:#555;width:45px;text-align:right">' . $pctGes . '%</td>'
+				. '<td style="padding-left:6px"><div style="background:' . $fc3 . ';height:4px;width:' . $pct . '%;border-radius:2px"></div></td>'
 				. '</tr>';
 		}
 
-		$dateiname = htmlspecialchars(basename($logDatei));
-		$ts = date('d.m.Y H:i:s');
+		$dateiname    = htmlspecialchars(basename($logDatei));
+		$ts           = date('d.m.Y H:i:s');
+		$fehlerHeuteH = number_format(array_sum($stundenCount));
+		$fehlerGesH   = number_format(array_sum($stundenCountG));
 
 		return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">'
 			. '<title>Statistik – ' . $dateiname . '</title>'
 			. '<style>'
 			. '*{box-sizing:border-box;margin:0;padding:0}'
-			. 'body{font-family:Arial,sans-serif;font-size:13px;background:#1a1a1a;color:#ccc;padding:12px}'
-			. 'h3{font-size:12px;color:#888;margin:0 0 6px;text-transform:uppercase;letter-spacing:.5px}'
-			. '.card{background:#222;border:1px solid #2e2e2e;border-radius:6px;padding:10px 12px;margin-bottom:10px}'
+			. 'body{font-family:Arial,sans-serif;font-size:12px;background:#1a1a1a;color:#ccc;padding:10px}'
+			. 'h3{font-size:11px;color:#666;margin:0 0 5px;text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;gap:6px}'
+			. '.card{background:#1e1e1e;border:1px solid #2a2a2a;border-radius:6px;padding:8px 10px;margin-bottom:8px}'
 			. 'table{width:100%;border-collapse:collapse}'
-			. 'tr:nth-child(even) td{background:#252525}'
-			. 'tr:hover td{background:#2a2a2a}'
-			. 'td{padding:3px 4px;vertical-align:middle;font-size:12px}'
-			. '.meta{color:#555;font-size:11px;margin-bottom:10px}'
-			. '.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}'
-			. '.grid3{display:grid;grid-template-columns:2fr 1fr;gap:10px}'
-			. '.legend{display:flex;gap:12px;font-size:11px;margin-top:5px}'
-			. '.ld{width:12px;height:12px;border-radius:2px;display:inline-block;margin-right:3px}'
-			. '#chtip{position:fixed;display:none;background:#2a2a2a;border:1px solid #555;border-radius:6px;padding:8px 12px;pointer-events:none;z-index:9999;max-width:340px;box-shadow:0 4px 12px rgba(0,0,0,.6);font-size:12px}'
+			. 'tr:nth-child(even) td{background:rgba(255,255,255,.02)}'
+			. 'tr:hover td{background:rgba(255,255,255,.04)}'
+			. 'td{padding:3px 3px;vertical-align:middle;font-size:11px}'
+			. '.meta{color:#444;font-size:11px;margin-bottom:8px;display:flex;gap:16px;flex-wrap:wrap}'
+			. '.metaval{color:#aaa}'
+			. '.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}'
+			. '.grid3{display:grid;grid-template-columns:2fr 1fr;gap:8px}'
+			. '.legend{display:flex;gap:10px;font-size:10px;margin-top:4px;flex-wrap:wrap}'
+			. '.ld{width:10px;height:10px;border-radius:2px;display:inline-block;margin-right:3px;vertical-align:middle}'
+			. '#chtip{position:fixed;display:none;background:#1e1e2a;border:1px solid #444;border-radius:6px;padding:8px 12px;pointer-events:none;z-index:9999;max-width:360px;box-shadow:0 4px 16px rgba(0,0,0,.7);font-size:11px;line-height:1.6}'
 			. '@media(max-width:700px){.grid2,.grid3{grid-template-columns:1fr}}'
 			. '</style></head><body>'
 			. '<div id="chtip"></div>'
-			. '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">'
-			. '<span style="font-size:15px;color:#ffd080;font-weight:bold">&#128202; Statistik – ' . $dateiname . '</span>'
-			. '<a href="' . $h . '" style="background:#2a2a2a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:3px 10px;text-decoration:none;font-size:12px">&#8592; Zurück</a>'
+			. '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
+			. '<span style="font-size:14px;color:#ffd080;font-weight:bold">📊 Statistik – ' . $dateiname . '</span>'
+			. '<a href="' . $h . '" style="background:#222;color:#aaa;border:1px solid #333;border-radius:4px;padding:2px 10px;text-decoration:none;font-size:11px">← Zurück</a>'
 			. '</div>'
-			. '<div class="meta">Gesamt: ' . number_format($gesamt) . ' Zeilen &nbsp;|&nbsp; Errors/Warnings: ' . number_format($gesamtFehler) . ' &nbsp;|&nbsp; Stand: ' . $ts . '</div>'
-			// Heute vs Gestern
+			. '<div class="meta">'
+			. '<span>Gesamt: <span class="metaval">' . number_format($gesamt) . '</span> Zeilen</span>'
+			. '<span>Errors/Warnings: <span class="metaval" style="color:#f88">' . number_format($gesamtFehler) . '</span></span>'
+			. '<span>Heute: <span class="metaval" style="color:#f88">' . $fehlerHeuteH . '</span> Fehler</span>'
+			. '<span>Gestern: <span class="metaval" style="color:#888">' . $fehlerGesH . '</span> Fehler</span>'
+			. '<span style="margin-left:auto;color:#333">Stand: ' . $ts . '</span>'
+			. '</div>'
+			// Chart 1
 			. '<div class="card">'
-			. '<h3>&#9202; Errors + Warnings nach Uhrzeit &nbsp;<span style="color:#555;font-size:10px;text-transform:none;font-weight:normal">Heute vs. Gestern</span></h3>'
-			. '<svg viewBox="0 0 ' . $svgW . ' ' . $svgH . '" width="100%" style="background:#1a1a1a;border-radius:4px">' . $svgBars . '</svg>'
-			. '<div class="legend"><span><span class="ld" style="background:#5a9"></span>Heute (niedrig)</span><span><span class="ld" style="background:#fa0"></span>Heute (mittel)</span><span><span class="ld" style="background:#f66"></span>Heute (hoch)</span><span><span class="ld" style="background:#3a3a3a"></span>Gestern</span></div>'
+			. '<h3>⏰ Errors + Warnings nach Uhrzeit <span style="font-weight:normal;text-transform:none;font-size:10px;color:#444">Heute vs. Gestern</span></h3>'
+			. '<svg viewBox="0 0 ' . $svgW . ' ' . $svgH . '" width="100%" style="background:#161616;border-radius:3px">' . $svgBars . '</svg>'
+			. '<div class="legend"><span><span class="ld" style="background:#5a9"></span>Heute niedrig</span><span><span class="ld" style="background:#fa0"></span>Heute mittel</span><span><span class="ld" style="background:#f66"></span>Heute hoch</span><span><span class="ld" style="background:#3a3a3a"></span>Gestern</span></div>'
 			. '</div>'
-			// 30-Tage Trend
+			// Chart 2
 			. '<div class="card">'
-			. '<h3>&#128200; Verlauf letzte 30 Tage &nbsp;<span style="color:#f88;font-size:10px;text-transform:none">&#9632; Heute</span></h3>'
-			. '<svg viewBox="0 0 ' . $trendW . ' ' . $trendH . '" width="100%" style="background:#1a1a1a;border-radius:4px">' . $trendBars . '</svg>'
+			. '<h3>📈 Verlauf letzte 30 Tage <span style="font-weight:normal;text-transform:none;font-size:10px;color:#f88">■ Heute</span> <span style="font-size:10px;color:#444;font-weight:normal;text-transform:none">(log. Skala)</span></h3>'
+			. '<svg viewBox="0 0 ' . $trendW . ' ' . $trendH . '" width="100%" style="background:#161616;border-radius:3px">' . $trendBars . '</svg>'
 			. '</div>'
-			// Heatmap + Wochentag
+			// Charts 3+4
 			. '<div class="grid3">'
-			. '<div class="card"><h3>&#128293; Heatmap Wochentag × Uhrzeit</h3>'
-			. '<svg viewBox="0 0 ' . $hmW . ' ' . $hmH . '" width="100%" style="background:#1a1a1a;border-radius:4px">' . $hmSvg . '</svg>'
+			. '<div class="card"><h3>🔥 Heatmap Wochentag × Uhrzeit</h3>'
+			. '<svg viewBox="0 0 ' . $hmW . ' ' . $hmH . '" width="100%" style="background:#161616;border-radius:3px">' . $hmSvg . '</svg>'
 			. '</div>'
-			. '<div class="card"><h3>&#128197; Verteilung nach Wochentag</h3>'
-			. '<svg viewBox="0 0 ' . $wtW . ' ' . $wtH . '" width="100%" style="background:#1a1a1a;border-radius:4px">' . $wtSvg . '</svg>'
+			. '<div class="card"><h3>📅 Verteilung nach Wochentag</h3>'
+			. '<svg viewBox="0 0 ' . $wtW . ' ' . $wtH . '" width="100%" style="background:#161616;border-radius:3px">' . $wtSvg . '</svg>'
 			. '</div>'
 			. '</div>'
 			// Fehler + Gruppen
 			. '<div class="grid2">'
-			. '<div class="card"><h3>&#9888; Häufigste Fehler (Top 20) &nbsp;<span style="color:#555;font-size:10px;text-transform:none">Erstauftreten</span></h3><table>' . $fehlerRows . '</table></div>'
+			. '<div class="card"><h3>⚠ Häufigste Fehler <span style="font-weight:normal;text-transform:none;font-size:10px;color:#444">Top 25 | mit Erstauftreten</span></h3>'
+			. '<table>' . $fehlerRows . '</table></div>'
 			. '<div>'
-			. '<div class="card"><h3>&#128101; Aktivste Sender</h3><table>' . $senderRows . '</table></div>'
-			. '<div class="card"><h3>&#127381; Typ-Verteilung</h3><table>' . $typRows . '</table></div>'
+			. '<div class="card"><h3>🗂 Fehler-Gruppen <span style="font-weight:normal;text-transform:none;font-size:10px;color:#444">ähnliche zusammengefasst</span></h3>'
+			. '<table>' . $gruppenRows . '</table></div>'
+			. '<div class="card"><h3>👤 Aktivste Sender</h3>'
+			. '<table>' . $senderRows . '</table></div>'
+			. '<div class="card"><h3>🎯 Typ-Verteilung</h3>'
+			. '<table>' . $typRows . '</table></div>'
 			. '</div>'
 			. '</div>'
+			// SVG Tooltip JS
 			. '<script>'
 			. 'var _t=document.getElementById("chtip");'
 			. 'document.querySelectorAll(".sh").forEach(function(r){'
@@ -597,9 +648,10 @@ public function ErstelleStatistik(): string
 			.     'var c=parseInt(r.getAttribute("data-c")||"0");'
 			.     'var g=parseInt(r.getAttribute("data-g")||"0");'
 			.     'if(!c&&!g){_t.style.display="none";return;}'
-			.     '_t.innerHTML="<b style=\"color:#ffd080\">"+r.getAttribute("data-h")+" Uhr</b><br>"'
-			.       '+"Heute: <b style=\"color:#f88\">"+c+"</b> &nbsp; Gestern: <b style=\"color:#888\">"+g+"</b><br>"'
-			.       '+(r.getAttribute("data-m")?"<span style=\"color:#bbb;font-size:11px\">"+r.getAttribute("data-m")+"</span>":"");'
+			.     '_t.innerHTML="<b style=\"color:#ffd080\">"+(r.getAttribute("data-h")||"")+" Uhr</b><br>"'
+			.       '+"<span style=\"color:#f88\">Heute: <b>"+c+"</b></span>"'
+			.       '+" &nbsp; <span style=\"color:#666\">Gestern: "+g+"</span><br>"'
+			.       '+(r.getAttribute("data-m")?"<span style=\"color:#999\">"+r.getAttribute("data-m")+"</span>":"");'
 			.     '_t.style.display="block";'
 			.     '_t.style.left=(e.clientX+14)+"px";'
 			.     '_t.style.top=(e.clientY-10)+"px";'
@@ -613,6 +665,7 @@ public function ErstelleStatistik(): string
 			. '</script>'
 			. '</body></html>';
 	}
+
 
 	public function ObjektIdAufloesen(string $oid): string
 	{
