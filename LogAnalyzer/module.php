@@ -308,9 +308,11 @@ public function ErstelleStatistik(): string
 				$senderCount[$sender] = ($senderCount[$sender] ?? 0) + 1;
 				$senderTypCount[$sender][$typ] = ($senderTypCount[$sender][$typ] ?? 0) + 1;
 
-				// Datum extrahieren
-				preg_match('/(\d{4}-\d{2}-\d{2})/', $zstamp, $dm);
-				$datum = $dm[1] ?? '';
+				// Datum extrahieren (Format: DD.MM.YYYY HH:MM:SS)
+				$datum = '';
+				if (preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) {
+					$datum = $dm[3] . '-' . $dm[2] . '-' . $dm[1]; // -> YYYY-MM-DD
+				}
 
 				// Stunden
 				preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm);
