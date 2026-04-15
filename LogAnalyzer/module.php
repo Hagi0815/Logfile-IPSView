@@ -458,7 +458,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 					$b = (int)(10 + $intensity * 10);
 					$fill = sprintf('rgb(%d,%d,%d)', $r, $gg, $b);
 					$hmSvg .= '<rect x="' . $cx . '" y="' . $y . '" width="' . ($hmCellW-1) . '" height="' . ($hmCellH-2) . '" fill="' . $fill . '" rx="1"'
-						. ' data-d="' . $hmLabel2 . '" data-v="' . $v . '" class="hm" cursor="pointer"/>';
+						. ' data-d="' . $hmLabel2 . '" data-v="' . $v . '" data-dow="' . $d . '" data-hr="' . $h2 . '" class="hm" cursor="pointer"/>';
 					if ($hmCellW >= 20) {
 						$textCol = $intensity > 0.6 ? '#fff' : '#aaa';
 						$hmSvg .= '<text x="' . ($cx + (int)($hmCellW/2)) . '" y="' . ($y+15) . '" font-size="7" fill="' . $textCol . '" text-anchor="middle" pointer-events="none">' . $v . '</text>';
@@ -592,9 +592,23 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			. '.legend{display:flex;gap:10px;font-size:10px;margin-top:4px;flex-wrap:wrap}'
 			. '.ld{width:10px;height:10px;border-radius:2px;display:inline-block;margin-right:3px;vertical-align:middle}'
 			. '#chtip{position:fixed;display:none;background:#1e1e2a;border:1px solid #444;border-radius:6px;padding:8px 12px;pointer-events:none;z-index:9999;max-width:360px;box-shadow:0 4px 16px rgba(0,0,0,.7);font-size:11px;line-height:1.6}'
+			. '#hmoverlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.75);z-index:10000;overflow:auto;padding:30px 20px}'
+			. '#hmoverlay .panel{background:#1e1e1e;border:1px solid #333;border-radius:8px;max-width:820px;margin:0 auto}'
+			. '#hmoverlay .phead{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #2a2a2a;position:sticky;top:0;background:#1e1e1e;border-radius:8px 8px 0 0;z-index:1}'
+			. '#hmoverlay .phead h2{font-size:13px;color:#ffd080;margin:0}'
+			. '#hmoverlay .cls{background:#2a2a2a;color:#aaa;border:1px solid #3a3a3a;border-radius:4px;padding:3px 10px;cursor:pointer;font-size:12px}'
+			. '#hmoverlay .cls:hover{background:#3a3a3a}'
+			. '#hmpanel-body table{width:100%;border-collapse:collapse}'
+			. '#hmpanel-body td{padding:4px 8px;font-size:11px;border-bottom:1px solid #252525;vertical-align:top;word-break:break-word}'
+			. '#hmpanel-body tr:hover td{background:#252525}'
+			. '.typ-e{color:#f66;font-weight:bold}.typ-w{color:#fa0;font-weight:bold}.typ-d{color:#7ecfff}.typ-m{color:#888}.typ-s{color:#88ffcc}.typ-n{color:#d0aaff}.typ-c{color:#ffcc88}'
 			. '@media(max-width:700px){.grid2,.grid3{grid-template-columns:1fr}}'
 			. '</style></head><body>'
 			. '<div id="chtip"></div>'
+			. '<div id="hmoverlay"><div class="panel">'
+			. '<div class="phead"><h2 id="hmpanel-title">Details</h2><button class="cls" onclick="closeHmOverlay()">✕ Schließen</button></div>'
+			. '<div id="hmpanel-body" style="padding:10px"></div>'
+			. '</div></div>'
 			. '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
 			. '<span style="font-size:14px;color:#ffd080;font-weight:bold">📊 Statistik – ' . $dateiname . '</span>'
 			. '<a href="' . $h . '" style="background:#222;color:#aaa;border:1px solid #333;border-radius:4px;padding:2px 10px;text-decoration:none;font-size:11px">← Zurück</a>'
@@ -670,15 +684,57 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			.   'r.addEventListener("mousemove",moveTip);'
 			.   'r.addEventListener("mouseleave",hideTip);'
 			. '});'
+			. 'var hmApiBase="' . $h . '?a=HeatmapDetail";'
+			. 'function openHmOverlay(dow,h2,label,cnt){'
+			.   'hideTip();'
+			.   'var ov=document.getElementById("hmoverlay");'
+			.   'var title=document.getElementById("hmpanel-title");'
+			.   'var body=document.getElementById("hmpanel-body");'
+			.   'title.textContent=label+" ("+cnt+" Einträge)";'
+			.   'body.innerHTML="<div style=\\"padding:20px;color:#666\\">Lade…</div>";'
+			.   'ov.style.display="block";'
+			.   'fetch(hmApiBase+"&dow="+dow+"&h="+h2)'
+			.     '.then(function(r){return r.json();})'
+			.     '.then(function(d){'
+			.       'if(d.error){body.innerHTML="<p style=\\"color:#f66;padding:20px\\">Fehler: "+d.error+"</p>";return;}'
+			.       'var typCls={ERROR:"typ-e",WARNING:"typ-w",DEBUG:"typ-d",MESSAGE:"typ-m",SUCCESS:"typ-s",NOTIFY:"typ-n",CUSTOM:"typ-c"};'
+			.       'var html="<div style=\\"padding:8px 14px 4px;color:#555;font-size:11px\\">Letzte bis zu 200 Einträge für "+d.label+"</div>";'
+			.       'html+="<table><thead><tr style=\\"background:#252525\\">";'
+			.       'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666;width:140px\\">Zeit</th>";'
+			.       'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666;width:75px\\">Typ</th>";'
+			.       'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666;width:130px\\">Sender</th>";'
+			.       'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666\\">Meldung</th>";'
+			.       'html+="</tr></thead><tbody>";'
+			.       'if(d.eintraege.length===0){html+="<tr><td colspan=4 style=\\"padding:20px;color:#555;text-align:center\\">Keine Einträge gefunden</td></tr>";}'
+			.       'd.eintraege.forEach(function(e){'
+			.         'var tc=typCls[e.typ.toUpperCase()]||"typ-m";'
+			.         'html+="<tr>";'
+			.         'html+="<td style=\\"color:#555;white-space:nowrap\\">"+(e.zeit||"")+"</td>";'
+			.         'html+="<td class=\\""+tc+"\\">"+(e.typ||"")+"</td>";'
+			.         'html+="<td style=\\"color:#ffd080\\">"+(e.sender||"")+"</td>";'
+			.         'html+="<td style=\\"color:#ccc\\">"+(e.msg||"")+"</td>";'
+			.         'html+="</tr>";'
+			.       '});'
+			.       'html+="</tbody></table>";'
+			.       'body.innerHTML=html;'
+			.     '})'
+			.     '.catch(function(){body.innerHTML="<p style=\\"color:#f66;padding:20px\\">Fehler beim Laden</p>";});'
+			. '}'
+			. 'function closeHmOverlay(){document.getElementById("hmoverlay").style.display="none";}'
+			. 'document.getElementById("hmoverlay").addEventListener("click",function(e){if(e.target===this)closeHmOverlay();});'
 			. 'document.querySelectorAll(".hm").forEach(function(r){'
 			.   'r.addEventListener("mouseenter",function(e){'
 			.     'showTip(e,'
 			.       '"<b style=\\"color:#ffd080\\">"+r.getAttribute("data-d")+"</b><br>"'
 			.       '+"Einträge: <b style=\\"color:#f88\\">"+r.getAttribute("data-v")+"</b>"'
+			.       '+"<br><span style=\\"color:#555;font-size:10px\\">Klicken für Details</span>"'
 			.     ');'
 			.   '});'
 			.   'r.addEventListener("mousemove",moveTip);'
 			.   'r.addEventListener("mouseleave",hideTip);'
+			.   'r.addEventListener("click",function(){'
+			.     'openHmOverlay(r.getAttribute("data-dow"),r.getAttribute("data-hr"),r.getAttribute("data-d"),r.getAttribute("data-v"));'
+			.   '});'
 			. '});'
 			. 'document.querySelectorAll(".wt").forEach(function(r){'
 			.   'r.addEventListener("mouseenter",function(e){'
@@ -694,6 +750,53 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			. '</body></html>';
 	}
 
+
+
+	public function HeatmapDetail(int $dow, int $stunde): string
+	{
+		$tage    = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+		$logDatei = $this->leseAktuelleLogDatei();
+		if ($dow < 0 || $dow > 6 || $stunde < 0 || $stunde > 23 || !is_file($logDatei)) {
+			return json_encode(['error' => 'Ungültige Parameter'], JSON_UNESCAPED_UNICODE);
+		}
+
+		$zielWt    = $dow + 1; // date('N'): 1=Mo..7=So
+		$ergebnis  = [];
+		$handle    = @fopen($logDatei, 'rb');
+		if ($handle) {
+			while (($zeile = fgets($handle)) !== false) {
+				$p = $this->parseLogZeile($zeile);
+				if ($p === null) continue;
+				$zstamp = (string)($p['zeitstempel'] ?? '');
+
+				// Datum extrahieren
+				if (!preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) continue;
+				$datum = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
+
+				// Wochentag und Stunde prüfen
+				if ((int)date('N', strtotime($datum)) !== $zielWt) continue;
+				if (!preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm)) continue;
+				if ((int)$tm[1] !== $stunde) continue;
+
+				$ergebnis[] = [
+					'zeit'   => $zstamp,
+					'typ'    => (string)($p['typ']     ?? ''),
+					'sender' => (string)($p['sender']  ?? ''),
+					'msg'    => (string)($p['meldung'] ?? ''),
+				];
+			}
+			fclose($handle);
+		}
+
+		// Letzte 200 Treffer, neueste zuerst
+		$ergebnis = array_slice(array_reverse($ergebnis), 0, 200);
+
+		return json_encode([
+			'label'   => $tage[$dow] . ', ' . sprintf('%02d:00–%02d:59', $stunde, $stunde),
+			'count'   => count($ergebnis),
+			'eintraege' => $ergebnis,
+		], JSON_UNESCAPED_UNICODE);
+	}
 
 	public function ObjektIdAufloesen(string $oid): string
 	{

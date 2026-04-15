@@ -14,6 +14,15 @@ if ($a === 'Statistik') {
     return;
 }
 
+// Heatmap-Detail (JSON-API): ?a=HeatmapDetail&dow=1&h=10
+if ($a === 'HeatmapDetail') {
+    header('Content-Type: application/json; charset=utf-8');
+    $dow = isset($_GET['dow']) ? (int)$_GET['dow'] : -1;
+    $h2  = isset($_GET['h'])   ? (int)$_GET['h']   : -1;
+    echo LOGANALYZER_HeatmapDetail($instId, $dow, $h2);
+    return;
+}
+
 // ObjektID auflösen (JSON-API)
 if ($a === 'ObjektIdAufloesen') {
     header('Content-Type: application/json; charset=utf-8');
