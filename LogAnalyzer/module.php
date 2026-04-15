@@ -426,7 +426,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			$tagLabel = date('d.m.Y', strtotime($tag));
 			$tagWt = $tage[(int)date('N', strtotime($tag)) - 1];
 			if ($bh > 0) $trendBars .= '<rect x="' . ($x+1) . '" y="' . ($trendH-$bh-20) . '" width="' . ($trendBarW-2) . '" height="' . $bh . '" fill="' . $fc . '" rx="1"'
-				. ' data-d="' . htmlspecialchars($tagWt . ', ' . $tagLabel, ENT_QUOTES) . '" data-v="' . $v . '" data-ges="' . ($tageCount[$tag] ?? 0) . '" class="th" cursor="pointer"/>';
+				. ' data-d="' . htmlspecialchars($tagWt . ', ' . $tagLabel, ENT_QUOTES) . '" data-v="' . $v . '" data-datum="' . $tag . '" class="th" cursor="pointer"/>';
 			if ($idx % 5 === 0 || $tag === $heute) {
 				$lbl = date('d.m', strtotime($tag));
 				$trendBars .= '<text x="' . ($x+1) . '" y="' . ($trendH-4) . '" font-size="7" fill="#444">' . $lbl . '</text>';
@@ -488,7 +488,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			$fc = $d >= 5 ? '#7a5a2a' : '#3a6a5a';
 			if ($bh > 0) {
 				$wtSvg .= '<rect x="' . ($x+2) . '" y="' . ($wtH-$bh-20) . '" width="' . ($wtBarW-4) . '" height="' . $bh . '" fill="' . $fc . '" rx="2"'
-					. ' data-d="' . htmlspecialchars($tage[$d], ENT_QUOTES) . '" data-v="' . $v . '" class="wt" cursor="pointer"/>';
+					. ' data-d="' . htmlspecialchars($tage[$d], ENT_QUOTES) . '" data-v="' . $v . '" data-dow="' . $d . '" class="wt" cursor="pointer"/>';
 				if ($bh > 14) $wtSvg .= '<text x="' . ($x + (int)($wtBarW/2)) . '" y="' . ($wtH-$bh-22) . '" font-size="7" fill="#888" text-anchor="middle" pointer-events="none">' . $v . '</text>';
 			}
 			$wtSvg .= '<text x="' . ($x + (int)($wtBarW/2)) . '" y="' . ($wtH-5) . '" font-size="8" fill="#555" text-anchor="middle">' . $tage[$d] . '</text>';
@@ -606,7 +606,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			. '</style></head><body>'
 			. '<div id="chtip"></div>'
 			. '<div id="hmoverlay"><div class="panel">'
-			. '<div class="phead"><h2 id="hmpanel-title">Details</h2><button class="cls" onclick="closeHmOverlay()">✕ Schließen</button></div>'
+			. '<div class="phead"><h2 id="hmpanel-title">Details</h2><button class="cls" onclick="closeOverlay()">✕ Schließen</button></div>'
 			. '<div id="hmpanel-body" style="padding:10px"></div>'
 			. '</div></div>'
 			. '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
@@ -673,19 +673,31 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			.   '});'
 			.   'r.addEventListener("mousemove",moveTip);'
 			.   'r.addEventListener("mouseleave",hideTip);'
+			.   'r.addEventListener("click",function(){'
+			.     'var hr=parseInt(r.getAttribute("data-h")||"0");'
+			.     'var c=parseInt(r.getAttribute("data-c")||"0");'
+			.     'var g=parseInt(r.getAttribute("data-g")||"0");'
+			.     'if(c>0){var url=_apiBase+"?a=StundenDetail&datum=heute&h="+hr;openOverlay(url,r.getAttribute("data-h")+" Uhr (Heute)",c);}'
+			.     'else if(g>0){var url=_apiBase+"?a=StundenDetail&datum=gestern&h="+hr;openOverlay(url,r.getAttribute("data-h")+" Uhr (Gestern)",g);}'
+			.   '});'
 			. '});'
 			. 'document.querySelectorAll(".th").forEach(function(r){'
 			.   'r.addEventListener("mouseenter",function(e){'
 			.     'showTip(e,'
 			.       '"<b style=\\"color:#ffd080\\">"+r.getAttribute("data-d")+"</b><br>"'
 			.       '+"Einträge: <b style=\\"color:#f88\\">"+r.getAttribute("data-v")+"</b>"'
+			.       '+"<br><span style=\\"color:#555;font-size:10px\\">Klicken für Details</span>"'
 			.     ');'
 			.   '});'
 			.   'r.addEventListener("mousemove",moveTip);'
 			.   'r.addEventListener("mouseleave",hideTip);'
+			.   'r.addEventListener("click",function(){'
+			.     'var url=_apiBase+"?a=TrendDetail&datum="+encodeURIComponent(r.getAttribute("data-datum")||r.getAttribute("data-d"));'
+			.     'openOverlay(url,r.getAttribute("data-d"),r.getAttribute("data-v"));'
+			.   '});'
 			. '});'
-			. 'var hmApiBase="' . $h . '?a=HeatmapDetail";'
-			. 'function openHmOverlay(dow,h2,label,cnt){'
+			. 'var _apiBase="' . $h . '";'
+			. 'function openOverlay(url,label,cnt){'
 			.   'hideTip();'
 			.   'var ov=document.getElementById("hmoverlay");'
 			.   'var title=document.getElementById("hmpanel-title");'
@@ -693,12 +705,12 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			.   'title.textContent=label+" ("+cnt+" Einträge)";'
 			.   'body.innerHTML="<div style=\\"padding:20px;color:#666\\">Lade…</div>";'
 			.   'ov.style.display="block";'
-			.   'fetch(hmApiBase+"&dow="+dow+"&h="+h2)'
+			.   'fetch(url)'
 			.     '.then(function(r){return r.json();})'
 			.     '.then(function(d){'
 			.       'if(d.error){body.innerHTML="<p style=\\"color:#f66;padding:20px\\">Fehler: "+d.error+"</p>";return;}'
 			.       'var typCls={ERROR:"typ-e",WARNING:"typ-w",DEBUG:"typ-d",MESSAGE:"typ-m",SUCCESS:"typ-s",NOTIFY:"typ-n",CUSTOM:"typ-c"};'
-			.       'var html="<div style=\\"padding:8px 14px 4px;color:#555;font-size:11px\\">Letzte bis zu 200 Einträge für "+d.label+"</div>";'
+			.       'var html="<div style=\\"padding:8px 14px 4px;color:#555;font-size:11px\\">Letzte bis zu 300 Einträge – "+d.label+"</div>";'
 			.       'html+="<table><thead><tr style=\\"background:#252525\\">";'
 			.       'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666;width:140px\\">Zeit</th>";'
 			.       'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666;width:75px\\">Typ</th>";'
@@ -720,8 +732,8 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			.     '})'
 			.     '.catch(function(){body.innerHTML="<p style=\\"color:#f66;padding:20px\\">Fehler beim Laden</p>";});'
 			. '}'
-			. 'function closeHmOverlay(){document.getElementById("hmoverlay").style.display="none";}'
-			. 'document.getElementById("hmoverlay").addEventListener("click",function(e){if(e.target===this)closeHmOverlay();});'
+			. 'function closeOverlay(){document.getElementById("hmoverlay").style.display="none";}'
+			. 'document.getElementById("hmoverlay").addEventListener("click",function(e){if(e.target===this)closeOverlay();});'
 			. 'document.querySelectorAll(".hm").forEach(function(r){'
 			.   'r.addEventListener("mouseenter",function(e){'
 			.     'showTip(e,'
@@ -733,7 +745,8 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			.   'r.addEventListener("mousemove",moveTip);'
 			.   'r.addEventListener("mouseleave",hideTip);'
 			.   'r.addEventListener("click",function(){'
-			.     'openHmOverlay(r.getAttribute("data-dow"),r.getAttribute("data-hr"),r.getAttribute("data-d"),r.getAttribute("data-v"));'
+			.     'var url=_apiBase+"?a=HeatmapDetail&dow="+r.getAttribute("data-dow")+"&h="+r.getAttribute("data-hr");'
+			.     'openOverlay(url,r.getAttribute("data-d"),r.getAttribute("data-v"));'
 			.   '});'
 			. '});'
 			. 'document.querySelectorAll(".wt").forEach(function(r){'
@@ -741,10 +754,15 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			.     'showTip(e,'
 			.       '"<b style=\\"color:#ffd080\\">"+r.getAttribute("data-d")+"</b><br>"'
 			.       '+"Einträge: <b style=\\"color:#f88\\">"+r.getAttribute("data-v")+"</b>"'
+			.       '+"<br><span style=\\"color:#555;font-size:10px\\">Klicken für Details</span>"'
 			.     ');'
 			.   '});'
 			.   'r.addEventListener("mousemove",moveTip);'
 			.   'r.addEventListener("mouseleave",hideTip);'
+			.   'r.addEventListener("click",function(){'
+			.     'var url=_apiBase+"?a=WochentagDetail&dow="+r.getAttribute("data-dow");'
+			.     'openOverlay(url,r.getAttribute("data-d"),r.getAttribute("data-v"));'
+			.   '});'
 			. '});'
 			. '</script>'
 			. '</body></html>';
@@ -797,6 +815,111 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			'eintraege' => $ergebnis,
 		], JSON_UNESCAPED_UNICODE);
 	}
+
+	public function TrendDetail(string $datum): string
+	{
+		$logDatei = $this->leseAktuelleLogDatei();
+		if (!$datum || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $datum) || !is_file($logDatei)) {
+			return json_encode(['error' => 'Ungültige Parameter'], JSON_UNESCAPED_UNICODE);
+		}
+		$zielDatum = $datum; // YYYY-MM-DD
+		$ergebnis  = [];
+		$handle    = @fopen($logDatei, 'rb');
+		if ($handle) {
+			while (($zeile = fgets($handle)) !== false) {
+				$p = $this->parseLogZeile($zeile);
+				if ($p === null) continue;
+				$zstamp = (string)($p['zeitstempel'] ?? '');
+				if (!preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) continue;
+				$d = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
+				if ($d !== $zielDatum) continue;
+				$ergebnis[] = [
+					'zeit'   => $zstamp,
+					'typ'    => (string)($p['typ']    ?? ''),
+					'sender' => (string)($p['sender'] ?? ''),
+					'msg'    => (string)($p['meldung'] ?? ''),
+				];
+			}
+			fclose($handle);
+		}
+		$ergebnis = array_slice(array_reverse($ergebnis), 0, 300);
+		$label = date('d.m.Y', strtotime($zielDatum)) . ' (' . $this->wochentagName($zielDatum) . ')';
+		return json_encode(['label' => $label, 'count' => count($ergebnis), 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
+	}
+
+	public function StundenDetail(string $datum, int $stunde): string
+	{
+		$logDatei = $this->leseAktuelleLogDatei();
+		if ($stunde < 0 || $stunde > 23 || !is_file($logDatei)) {
+			return json_encode(['error' => 'Ungültige Parameter'], JSON_UNESCAPED_UNICODE);
+		}
+		$heute    = date('Y-m-d');
+		$gestern  = date('Y-m-d', strtotime('-1 day'));
+		$zielDatum = ($datum === 'gestern') ? $gestern : $heute;
+		$ergebnis  = [];
+		$handle    = @fopen($logDatei, 'rb');
+		if ($handle) {
+			while (($zeile = fgets($handle)) !== false) {
+				$p = $this->parseLogZeile($zeile);
+				if ($p === null) continue;
+				$zstamp = (string)($p['zeitstempel'] ?? '');
+				if (!preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) continue;
+				$d = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
+				if ($d !== $zielDatum) continue;
+				if (!preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm)) continue;
+				if ((int)$tm[1] !== $stunde) continue;
+				$ergebnis[] = [
+					'zeit'   => $zstamp,
+					'typ'    => (string)($p['typ']    ?? ''),
+					'sender' => (string)($p['sender'] ?? ''),
+					'msg'    => (string)($p['meldung'] ?? ''),
+				];
+			}
+			fclose($handle);
+		}
+		$ergebnis = array_slice(array_reverse($ergebnis), 0, 300);
+		$tagLabel = ($datum === 'gestern') ? 'Gestern' : 'Heute';
+		$label = $tagLabel . ', ' . sprintf('%02d:00–%02d:59', $stunde, $stunde);
+		return json_encode(['label' => $label, 'count' => count($ergebnis), 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
+	}
+
+	public function WochentagDetail(int $dow): string
+	{
+		$tage     = ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag','Sonntag'];
+		$logDatei = $this->leseAktuelleLogDatei();
+		if ($dow < 0 || $dow > 6 || !is_file($logDatei)) {
+			return json_encode(['error' => 'Ungültige Parameter'], JSON_UNESCAPED_UNICODE);
+		}
+		$zielWt   = $dow + 1;
+		$ergebnis = [];
+		$handle   = @fopen($logDatei, 'rb');
+		if ($handle) {
+			while (($zeile = fgets($handle)) !== false) {
+				$p = $this->parseLogZeile($zeile);
+				if ($p === null) continue;
+				$zstamp = (string)($p['zeitstempel'] ?? '');
+				if (!preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) continue;
+				$d = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
+				if ((int)date('N', strtotime($d)) !== $zielWt) continue;
+				$ergebnis[] = [
+					'zeit'   => $zstamp,
+					'typ'    => (string)($p['typ']    ?? ''),
+					'sender' => (string)($p['sender'] ?? ''),
+					'msg'    => (string)($p['meldung'] ?? ''),
+				];
+			}
+			fclose($handle);
+		}
+		$ergebnis = array_slice(array_reverse($ergebnis), 0, 300);
+		return json_encode(['label' => $tage[$dow], 'count' => count($ergebnis), 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
+	}
+
+	private function wochentagName(string $datum): string
+	{
+		$tage = ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag','Sonntag'];
+		return $tage[(int)date('N', strtotime($datum)) - 1] ?? '';
+	}
+
 
 	public function ObjektIdAufloesen(string $oid): string
 	{
