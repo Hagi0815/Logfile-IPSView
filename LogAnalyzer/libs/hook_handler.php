@@ -34,7 +34,14 @@ if (in_array($a, $jsonAktionen)) {
             $dow = isset($_GET['dow']) ? (int)$_GET['dow'] : -1;
             $result = LOGANALYZER_WochentagDetail($instId, $dow);
         }
-        echo $result ?? json_encode(['error' => 'Unbekannter Fehler']);
+        // Sicherstellen dass nur gültiges JSON ausgegeben wird
+        $out = $result ?? '';
+        json_decode($out);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            // Antwort enthält PHP-Warnings oder andere Ausgaben
+            $out = json_encode(['error' => 'Ungültige Serverantwort: ' . substr(strip_tags($out), 0, 200)]);
+        }
+        echo $out;
     } catch (Throwable $e) {
         echo json_encode(['error' => $e->getMessage()]);
     }

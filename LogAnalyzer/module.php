@@ -947,8 +947,9 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 	private function alleLogDateien(): array
 	{
 		$logDir = rtrim(IPS_GetLogDir(), DIRECTORY_SEPARATOR);
-		$dateien = glob($logDir . DIRECTORY_SEPARATOR . 'logfile*.log') ?: [];
-		usort($dateien, fn($a,$b) => filemtime($a) <=> filemtime($b));
+		$dateien = @glob($logDir . DIRECTORY_SEPARATOR . 'logfile*.log') ?: [];
+		$dateien = array_filter($dateien, 'is_file');
+		@usort($dateien, fn($a,$b) => @filemtime($a) <=> @filemtime($b));
 		return $dateien;
 	}
 
@@ -965,8 +966,8 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		// Eine Logdatei rotiert täglich -> wir suchen die Datei deren mtime
 		// am dichtesten am Zieldatum liegt (±1 Tag Puffer)
 		foreach ($alle as $i => $datei) {
-			$mtime = filemtime($datei);
-			$prev  = ($i > 0) ? filemtime($alle[$i-1]) : 0;
+			$mtime = (int)@filemtime($datei);
+			$prev  = ($i > 0) ? (int)@filemtime($alle[$i-1]) : 0;
 			// Datei enthält Einträge zwischen prev-mtime und eigenem mtime
 			$vonTs = $prev ?: ($mtime - 86400);
 			if ($zielEnd >= $vonTs && $zielMidnight <= $mtime + 86400) {
