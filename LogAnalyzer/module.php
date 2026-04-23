@@ -301,7 +301,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		foreach ($alleLogfiles as $logFilePfad) {
 			$handle = @fopen($logFilePfad, 'rb');
 			if (!$handle) continue;
-			while (($zeile = fgets($handle)) !== false) {
 				while (($zeile = fgets($handle)) !== false) {
 					$p = $this->parseLogZeile($zeile);
 					if ($p === null) continue;
@@ -349,7 +348,6 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 					}
 			}
 			fclose($handle);
-		}
 		}
 
 		arsort($fehlerCount);
