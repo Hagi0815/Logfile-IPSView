@@ -626,6 +626,11 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			. '#hmoverlay .cls{background:#2a2a2a;color:#aaa;border:1px solid #3a3a3a;border-radius:4px;padding:3px 10px;cursor:pointer;font-size:12px}'
 			. '#hmoverlay .cls:hover{background:#3a3a3a}'
 			. '#hmpanel-body table{width:100%;border-collapse:collapse}'
+			. '.pgbar{display:flex;align-items:center;gap:6px;padding:8px 14px;border-top:1px solid #2a2a2a;background:#1a1a1a;position:sticky;bottom:0;border-radius:0 0 8px 8px}'
+			. '.pgbtn{background:#2a2a2a;color:#aaa;border:1px solid #3a3a3a;border-radius:4px;padding:3px 10px;cursor:pointer;font-size:12px}'
+			. '.pgbtn:hover{background:#3a3a3a}'
+			. '.pgbtn[disabled]{opacity:.3;cursor:default;pointer-events:none}'
+			. '.pginfo{color:#555;font-size:11px}'
 			. '#hmpanel-body td{padding:4px 8px;font-size:11px;border-bottom:1px solid #252525;vertical-align:top;word-break:break-word}'
 			. '#hmpanel-body tr:hover td{background:#252525}'
 			. '.typ-e{color:#f66;font-weight:bold}.typ-w{color:#fa0;font-weight:bold}.typ-d{color:#7ecfff}.typ-m{color:#888}.typ-s{color:#88ffcc}.typ-n{color:#d0aaff}.typ-c{color:#ffcc88}'
@@ -634,7 +639,15 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			. '<div id="chtip"></div>'
 			. '<div id="hmoverlay"><div class="panel">'
 			. '<div class="phead"><h2 id="hmpanel-title">Details</h2><button class="cls" onclick="closeOverlay()">✕ Schließen</button></div>'
-			. '<div id="hmpanel-body" style="padding:10px"></div>'
+			. '<div id="hmpanel-body"></div>'
+			. '<div class="pgbar">'
+			. '<button class="pgbtn" id="pg-first" onclick="hmPage(0)">&#8676;</button>'
+			. '<button class="pgbtn" id="pg-prev" onclick="hmPage(_hmPage-1)">&#8249;</button>'
+			. '<span class="pginfo" id="pg-info"></span>'
+			. '<button class="pgbtn" id="pg-next" onclick="hmPage(_hmPage+1)">&#8250;</button>'
+			. '<button class="pgbtn" id="pg-last" onclick="hmPage(_hmPages-1)">&#8677;</button>'
+			. '<span class="pginfo" id="pg-total"></span>'
+			. '</div>'
 			. '</div></div>'
 			. '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
 			. '<span style="font-size:14px;color:#ffd080;font-weight:bold">📊 Statistik – ' . $dateiname . '</span>'
@@ -728,40 +741,57 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			.   '});'
 			. '});'
 			. 'var _apiBase="' . $h . '";'
+			. 'var _hmData=null,_hmPage=0,_hmPages=0,_hmPgSize=100;'
+			. 'var _typCls={ERROR:"typ-e",WARNING:"typ-w",DEBUG:"typ-d",MESSAGE:"typ-m",SUCCESS:"typ-s",NOTIFY:"typ-n",CUSTOM:"typ-c"};'
+			. 'function hmRenderPage(page){'
+			.   'if(!_hmData)return;'
+			.   '_hmPage=Math.max(0,Math.min(page,_hmPages-1));'
+			.   'var start=_hmPage*_hmPgSize,end=Math.min(start+_hmPgSize,_hmData.length);'
+			.   'var slice=_hmData.slice(start,end);'
+			.   'var html="<table><thead><tr style=\\"background:#252525\\">";'
+			.   'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666;width:140px\\">Zeit</th>";'
+			.   'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666;width:75px\\">Typ</th>";'
+			.   'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666;width:130px\\">Sender</th>";'
+			.   'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666\\">Meldung</th>";'
+			.   'html+="</tr></thead><tbody>";'
+			.   'if(slice.length===0){html+="<tr><td colspan=4 style=\\"padding:20px;color:#555;text-align:center\\">Keine Einträge</td></tr>";}'
+			.   'slice.forEach(function(e){'
+			.     'var tc=_typCls[e.typ.toUpperCase()]||"typ-m";'
+			.     'html+="<tr><td style=\\"color:#555;white-space:nowrap\\">"+(e.zeit||"")+"</td>";'
+			.     'html+="<td class=\\""+tc+"\\">"+(e.typ||"")+"</td>";'
+			.     'html+="<td style=\\"color:#ffd080\\">"+(e.sender||"")+"</td>";'
+			.     'html+="<td style=\\"color:#ccc\\">"+(e.msg||"")+"</td></tr>";'
+			.   '});'
+			.   'html+="</tbody></table>";'
+			.   'document.getElementById("hmpanel-body").innerHTML=html;'
+			.   'document.getElementById("pg-info").textContent="Seite "+(page+1)+" / "+_hmPages;'
+			.   'document.getElementById("pg-total").textContent="("+start+"–"+(end-1)+" von "+_hmData.length+" Einträgen)";'
+			.   'document.getElementById("pg-first").disabled=(_hmPage===0);'
+			.   'document.getElementById("pg-prev").disabled=(_hmPage===0);'
+			.   'document.getElementById("pg-next").disabled=(_hmPage>=_hmPages-1);'
+			.   'document.getElementById("pg-last").disabled=(_hmPage>=_hmPages-1);'
+			. '}'
+			. 'function hmPage(p){hmRenderPage(p);document.getElementById("hmoverlay").scrollTop=0;}'
 			. 'function openOverlay(url,label,cnt){'
 			.   'hideTip();'
-			.   'var ov=document.getElementById("hmoverlay");'
+			.   '_hmData=null;_hmPage=0;'
 			.   'var title=document.getElementById("hmpanel-title");'
 			.   'var body=document.getElementById("hmpanel-body");'
-			.   'title.textContent=label+" ("+cnt+" Einträge)";'
+			.   'title.textContent=label+" (lade…)";'
 			.   'body.innerHTML="<div style=\\"padding:20px;color:#666\\">Lade…</div>";'
-			.   'ov.style.display="block";'
+			.   'document.getElementById("pg-info").textContent="";'
+			.   'document.getElementById("pg-total").textContent="";'
+			.   'document.getElementById("hmoverlay").style.display="block";'
 			.   'fetch(url)'
 			.     '.then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json();})'
 			.     '.then(function(d){'
 			.       'if(d.error){body.innerHTML="<p style=\\"color:#f66;padding:20px\\">Fehler: "+d.error+"</p>";return;}'
-			.       'var typCls={ERROR:"typ-e",WARNING:"typ-w",DEBUG:"typ-d",MESSAGE:"typ-m",SUCCESS:"typ-s",NOTIFY:"typ-n",CUSTOM:"typ-c"};'
-			.       'var html="<div style=\\"padding:8px 14px 4px;color:#555;font-size:11px\\">Letzte bis zu 300 Einträge – "+d.label+"</div>";'
-			.       'html+="<table><thead><tr style=\\"background:#252525\\">";'
-			.       'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666;width:140px\\">Zeit</th>";'
-			.       'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666;width:75px\\">Typ</th>";'
-			.       'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666;width:130px\\">Sender</th>";'
-			.       'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666\\">Meldung</th>";'
-			.       'html+="</tr></thead><tbody>";'
-			.       'if(d.eintraege.length===0){html+="<tr><td colspan=4 style=\\"padding:20px;color:#555;text-align:center\\">Keine Einträge gefunden</td></tr>";}'
-			.       'd.eintraege.forEach(function(e){'
-			.         'var tc=typCls[e.typ.toUpperCase()]||"typ-m";'
-			.         'html+="<tr>";'
-			.         'html+="<td style=\\"color:#555;white-space:nowrap\\">"+(e.zeit||"")+"</td>";'
-			.         'html+="<td class=\\""+tc+"\\">"+(e.typ||"")+"</td>";'
-			.         'html+="<td style=\\"color:#ffd080\\">"+(e.sender||"")+"</td>";'
-			.         'html+="<td style=\\"color:#ccc\\">"+(e.msg||"")+"</td>";'
-			.         'html+="</tr>";'
-			.       '});'
-			.       'html+="</tbody></table>";'
-			.       'body.innerHTML=html;'
+			.       '_hmData=d.eintraege||[];'
+			.       '_hmPages=Math.max(1,Math.ceil(_hmData.length/_hmPgSize));'
+			.       'title.textContent=d.label+" ("+_hmData.length+" Einträge)";'
+			.       'hmRenderPage(0);'
 			.     '})'
-			.     '.catch(function(err){body.innerHTML="<p style=\\"color:#f66;padding:20px\\">Fehler beim Laden: "+err+"</p>";});'
+			.     '.catch(function(err){body.innerHTML="<p style=\\"color:#f66;padding:20px\\">Fehler: "+err+"</p>";});'
 			. '}'
 			. 'function closeOverlay(){document.getElementById("hmoverlay").style.display="none";}'
 			. 'document.getElementById("hmoverlay").addEventListener("click",function(e){if(e.target===this)closeOverlay();});'
@@ -820,13 +850,11 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				if (!preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm)) continue;
 				if ((int)$tm[1] !== $stunde) continue;
 				$ergebnis[] = ['zeit'=>$zstamp,'typ'=>(string)($p['typ']??''),'sender'=>(string)($p['sender']??''),'msg'=>(string)($p['meldung']??'')];
-				if (count($ergebnis) >= 500) break;
 			}
 			fclose($h);
-			if (count($ergebnis) >= 500) break;
 		}
 
-		$ergebnis = array_slice(array_reverse($ergebnis), 0, 300);
+		$ergebnis = array_reverse($ergebnis);
 
 		return json_encode([
 			'label'   => $tage[$dow] . ', ' . sprintf('%02d:00–%02d:59', $stunde, $stunde),
@@ -852,7 +880,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			}
 			fclose($h);
 		}
-		$ergebnis = array_slice(array_reverse($ergebnis), 0, 300);
+		$ergebnis = array_reverse($ergebnis);
 		$label = date('d.m.Y', strtotime($datum)) . ' (' . $this->wochentagName($datum) . ')';
 		return json_encode(['label' => $label, 'count' => count($ergebnis), 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
 	}
@@ -878,12 +906,10 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				if (!preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm)) continue;
 				if ((int)$tm[1] !== $stunde) continue;
 				$ergebnis[] = ['zeit'=>$zstamp,'typ'=>(string)($p['typ']??''),'sender'=>(string)($p['sender']??''),'msg'=>(string)($p['meldung']??'')];
-				if (count($ergebnis) >= 500) break;
 			}
 			fclose($h);
-			if (count($ergebnis) >= 500) break;
 		}
-		$ergebnis = array_slice(array_reverse($ergebnis), 0, 500);
+		$ergebnis = array_reverse($ergebnis);
 		if ($alle) {
 			$label = sprintf('%02d:00–%02d:59 Uhr (alle Tage)', $stunde, $stunde);
 		} else {
@@ -910,12 +936,10 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				$d = $dm[3].'-'.$dm[2].'-'.$dm[1];
 				if ((int)date('N', strtotime($d)) !== $zielWt) continue;
 				$ergebnis[] = ['zeit'=>$zstamp,'typ'=>(string)($p['typ']??''),'sender'=>(string)($p['sender']??''),'msg'=>(string)($p['meldung']??'')];
-				if (count($ergebnis) >= 500) break;
 			}
 			fclose($h);
-			if (count($ergebnis) >= 500) break;
 		}
-		$ergebnis = array_slice(array_reverse($ergebnis), 0, 300);
+		$ergebnis = array_reverse($ergebnis);
 		return json_encode(['label' => $tage[$dow], 'count' => count($ergebnis), 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
 	}
 
