@@ -14,6 +14,9 @@ if ($a === 'Statistik') {
     return;
 }
 
+// Timeout für Detail-Abfragen erhöhen
+@set_time_limit(30);
+
 // Heatmap-Detail: ?a=HeatmapDetail&dow=1&h=10
 if ($a === 'HeatmapDetail') {
     header('Content-Type: application/json; charset=utf-8');

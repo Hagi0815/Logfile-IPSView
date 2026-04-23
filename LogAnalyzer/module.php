@@ -820,12 +820,13 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				if (!preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm)) continue;
 				if ((int)$tm[1] !== $stunde) continue;
 				$ergebnis[] = ['zeit'=>$zstamp,'typ'=>(string)($p['typ']??''),'sender'=>(string)($p['sender']??''),'msg'=>(string)($p['meldung']??'')];
+				if (count($ergebnis) >= 500) break;
 			}
 			fclose($h);
+			if (count($ergebnis) >= 500) break;
 		}
 
-		// Letzte 200 Treffer, neueste zuerst
-		$ergebnis = array_slice(array_reverse($ergebnis), 0, 200);
+		$ergebnis = array_slice(array_reverse($ergebnis), 0, 300);
 
 		return json_encode([
 			'label'   => $tage[$dow] . ', ' . sprintf('%02d:00–%02d:59', $stunde, $stunde),
@@ -840,7 +841,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			return json_encode(['error' => 'Ungültige Parameter'], JSON_UNESCAPED_UNICODE);
 		}
 		$ergebnis = [];
-		foreach ($this->alleLogDateien() as $lf) {
+		foreach ($this->logDateienFuerDatum($datum) as $lf) {
 			$h = @fopen($lf, 'rb'); if (!$h) continue;
 			while (($zeile = fgets($h)) !== false) {
 				$p = $this->parseLogZeile($zeile); if ($p === null) continue;
@@ -877,8 +878,10 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				if (!preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm)) continue;
 				if ((int)$tm[1] !== $stunde) continue;
 				$ergebnis[] = ['zeit'=>$zstamp,'typ'=>(string)($p['typ']??''),'sender'=>(string)($p['sender']??''),'msg'=>(string)($p['meldung']??'')];
+				if (count($ergebnis) >= 500) break;
 			}
 			fclose($h);
+			if (count($ergebnis) >= 500) break;
 		}
 		$ergebnis = array_slice(array_reverse($ergebnis), 0, 500);
 		if ($alle) {
@@ -907,8 +910,10 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				$d = $dm[3].'-'.$dm[2].'-'.$dm[1];
 				if ((int)date('N', strtotime($d)) !== $zielWt) continue;
 				$ergebnis[] = ['zeit'=>$zstamp,'typ'=>(string)($p['typ']??''),'sender'=>(string)($p['sender']??''),'msg'=>(string)($p['meldung']??'')];
+				if (count($ergebnis) >= 500) break;
 			}
 			fclose($h);
+			if (count($ergebnis) >= 500) break;
 		}
 		$ergebnis = array_slice(array_reverse($ergebnis), 0, 300);
 		return json_encode(['label' => $tage[$dow], 'count' => count($ergebnis), 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
@@ -921,6 +926,37 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		$dateien = glob($logDir . DIRECTORY_SEPARATOR . 'logfile*.log') ?: [];
 		usort($dateien, fn($a,$b) => filemtime($a) <=> filemtime($b));
 		return $dateien;
+	}
+
+	// Gibt Logdateien zurück die wahrscheinlich Einträge für ein bestimmtes Datum enthalten
+	private function logDateienFuerDatum(string $datum): array
+	{
+		$alle = $this->alleLogDateien();
+		if (empty($alle)) return [];
+		$zielTs = strtotime($datum);
+		if (!$zielTs) return $alle;
+		$zielMidnight = strtotime(date('Y-m-d', $zielTs));
+		$zielEnd      = $zielMidnight + 86399;
+		$kandidaten   = [];
+		// Eine Logdatei rotiert täglich -> wir suchen die Datei deren mtime
+		// am dichtesten am Zieldatum liegt (±1 Tag Puffer)
+		foreach ($alle as $i => $datei) {
+			$mtime = filemtime($datei);
+			$prev  = ($i > 0) ? filemtime($alle[$i-1]) : 0;
+			// Datei enthält Einträge zwischen prev-mtime und eigenem mtime
+			$vonTs = $prev ?: ($mtime - 86400);
+			if ($zielEnd >= $vonTs && $zielMidnight <= $mtime + 86400) {
+				$kandidaten[] = $datei;
+			}
+		}
+		return $kandidaten ?: $alle;
+	}
+
+	// Gibt Logdateien für einen Wochentag zurück (alle relevanten)
+	private function logDateienFuerWochentag(int $dow): array
+	{
+		// Wochentag kommt in vielen Dateien vor -> alle lesen, aber mit Limit
+		return $this->alleLogDateien();
 	}
 
 	private function wochentagName(string $datum): string
