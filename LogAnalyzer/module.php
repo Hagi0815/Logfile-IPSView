@@ -804,37 +804,24 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 	public function HeatmapDetail(int $dow, int $stunde): string
 	{
 		$tage    = ['Mo','Di','Mi','Do','Fr','Sa','So'];
-		$logDatei = $this->leseAktuelleLogDatei();
-		if ($dow < 0 || $dow > 6 || $stunde < 0 || $stunde > 23 || !is_file($logDatei)) {
+		if ($dow < 0 || $dow > 6 || $stunde < 0 || $stunde > 23) {
 			return json_encode(['error' => 'Ungültige Parameter'], JSON_UNESCAPED_UNICODE);
 		}
-
-		$zielWt    = $dow + 1; // date('N'): 1=Mo..7=So
-		$ergebnis  = [];
-		$handle    = @fopen($logDatei, 'rb');
-		if ($handle) {
-			while (($zeile = fgets($handle)) !== false) {
-				$p = $this->parseLogZeile($zeile);
-				if ($p === null) continue;
+		$zielWt   = $dow + 1;
+		$ergebnis = [];
+		foreach ($this->alleLogDateien() as $lf) {
+			$h = @fopen($lf, 'rb'); if (!$h) continue;
+			while (($zeile = fgets($h)) !== false) {
+				$p = $this->parseLogZeile($zeile); if ($p === null) continue;
 				$zstamp = (string)($p['zeitstempel'] ?? '');
-
-				// Datum extrahieren
 				if (!preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) continue;
-				$datum = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
-
-				// Wochentag und Stunde prüfen
+				$datum = $dm[3].'-'.$dm[2].'-'.$dm[1];
 				if ((int)date('N', strtotime($datum)) !== $zielWt) continue;
 				if (!preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm)) continue;
 				if ((int)$tm[1] !== $stunde) continue;
-
-				$ergebnis[] = [
-					'zeit'   => $zstamp,
-					'typ'    => (string)($p['typ']     ?? ''),
-					'sender' => (string)($p['sender']  ?? ''),
-					'msg'    => (string)($p['meldung'] ?? ''),
-				];
+				$ergebnis[] = ['zeit'=>$zstamp,'typ'=>(string)($p['typ']??''),'sender'=>(string)($p['sender']??''),'msg'=>(string)($p['meldung']??'')];
 			}
-			fclose($handle);
+			fclose($h);
 		}
 
 		// Letzte 200 Treffer, neueste zuerst
@@ -849,29 +836,20 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 
 	public function TrendDetail(string $datum): string
 	{
-		$logDatei = $this->leseAktuelleLogDatei();
-		if (!$datum || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $datum) || !is_file($logDatei)) {
+		if (!$datum || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $datum)) {
 			return json_encode(['error' => 'Ungültige Parameter'], JSON_UNESCAPED_UNICODE);
 		}
-		$zielDatum = $datum; // YYYY-MM-DD
-		$ergebnis  = [];
-		$handle    = @fopen($logDatei, 'rb');
-		if ($handle) {
-			while (($zeile = fgets($handle)) !== false) {
-				$p = $this->parseLogZeile($zeile);
-				if ($p === null) continue;
+		$ergebnis = [];
+		foreach ($this->alleLogDateien() as $lf) {
+			$h = @fopen($lf, 'rb'); if (!$h) continue;
+			while (($zeile = fgets($h)) !== false) {
+				$p = $this->parseLogZeile($zeile); if ($p === null) continue;
 				$zstamp = (string)($p['zeitstempel'] ?? '');
 				if (!preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) continue;
-				$d = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
-				if ($d !== $zielDatum) continue;
-				$ergebnis[] = [
-					'zeit'   => $zstamp,
-					'typ'    => (string)($p['typ']    ?? ''),
-					'sender' => (string)($p['sender'] ?? ''),
-					'msg'    => (string)($p['meldung'] ?? ''),
-				];
+				if ($dm[3].'-'.$dm[2].'-'.$dm[1] !== $datum) continue;
+				$ergebnis[] = ['zeit'=>$zstamp,'typ'=>(string)($p['typ']??''),'sender'=>(string)($p['sender']??''),'msg'=>(string)($p['meldung']??'')];
 			}
-			fclose($handle);
+			fclose($h);
 		}
 		$ergebnis = array_slice(array_reverse($ergebnis), 0, 300);
 		$label = date('d.m.Y', strtotime($zielDatum)) . ' (' . $this->wochentagName($zielDatum) . ')';
@@ -880,34 +858,27 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 
 	public function StundenDetail(string $datum, int $stunde): string
 	{
-		$logDatei = $this->leseAktuelleLogDatei();
-		if ($stunde < 0 || $stunde > 23 || !is_file($logDatei)) {
+		if ($stunde < 0 || $stunde > 23) {
 			return json_encode(['error' => 'Ungültige Parameter'], JSON_UNESCAPED_UNICODE);
 		}
-		$heute    = date('Y-m-d');
-		$gestern  = date('Y-m-d', strtotime('-1 day'));
-		$alle     = ($datum === 'alle');
+		$heute     = date('Y-m-d');
+		$gestern   = date('Y-m-d', strtotime('-1 day'));
+		$alle      = ($datum === 'alle');
 		$zielDatum = ($datum === 'gestern') ? $gestern : ($alle ? null : $heute);
 		$ergebnis  = [];
-		$handle    = @fopen($logDatei, 'rb');
-		if ($handle) {
-			while (($zeile = fgets($handle)) !== false) {
-				$p = $this->parseLogZeile($zeile);
-				if ($p === null) continue;
+		foreach ($this->alleLogDateien() as $lf) {
+			$h = @fopen($lf, 'rb'); if (!$h) continue;
+			while (($zeile = fgets($h)) !== false) {
+				$p = $this->parseLogZeile($zeile); if ($p === null) continue;
 				$zstamp = (string)($p['zeitstempel'] ?? '');
 				if (!preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) continue;
-				$d = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
+				$d = $dm[3].'-'.$dm[2].'-'.$dm[1];
 				if (!$alle && $d !== $zielDatum) continue;
 				if (!preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm)) continue;
 				if ((int)$tm[1] !== $stunde) continue;
-				$ergebnis[] = [
-					'zeit'   => $zstamp,
-					'typ'    => (string)($p['typ']    ?? ''),
-					'sender' => (string)($p['sender'] ?? ''),
-					'msg'    => (string)($p['meldung'] ?? ''),
-				];
+				$ergebnis[] = ['zeit'=>$zstamp,'typ'=>(string)($p['typ']??''),'sender'=>(string)($p['sender']??''),'msg'=>(string)($p['meldung']??'')];
 			}
-			fclose($handle);
+			fclose($h);
 		}
 		$ergebnis = array_slice(array_reverse($ergebnis), 0, 500);
 		if ($alle) {
@@ -922,32 +893,34 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 	public function WochentagDetail(int $dow): string
 	{
 		$tage     = ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag','Sonntag'];
-		$logDatei = $this->leseAktuelleLogDatei();
-		if ($dow < 0 || $dow > 6 || !is_file($logDatei)) {
+		if ($dow < 0 || $dow > 6) {
 			return json_encode(['error' => 'Ungültige Parameter'], JSON_UNESCAPED_UNICODE);
 		}
 		$zielWt   = $dow + 1;
 		$ergebnis = [];
-		$handle   = @fopen($logDatei, 'rb');
-		if ($handle) {
-			while (($zeile = fgets($handle)) !== false) {
-				$p = $this->parseLogZeile($zeile);
-				if ($p === null) continue;
+		foreach ($this->alleLogDateien() as $lf) {
+			$h = @fopen($lf, 'rb'); if (!$h) continue;
+			while (($zeile = fgets($h)) !== false) {
+				$p = $this->parseLogZeile($zeile); if ($p === null) continue;
 				$zstamp = (string)($p['zeitstempel'] ?? '');
 				if (!preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) continue;
-				$d = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
+				$d = $dm[3].'-'.$dm[2].'-'.$dm[1];
 				if ((int)date('N', strtotime($d)) !== $zielWt) continue;
-				$ergebnis[] = [
-					'zeit'   => $zstamp,
-					'typ'    => (string)($p['typ']    ?? ''),
-					'sender' => (string)($p['sender'] ?? ''),
-					'msg'    => (string)($p['meldung'] ?? ''),
-				];
+				$ergebnis[] = ['zeit'=>$zstamp,'typ'=>(string)($p['typ']??''),'sender'=>(string)($p['sender']??''),'msg'=>(string)($p['meldung']??'')];
 			}
-			fclose($handle);
+			fclose($h);
 		}
 		$ergebnis = array_slice(array_reverse($ergebnis), 0, 300);
 		return json_encode(['label' => $tage[$dow], 'count' => count($ergebnis), 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
+	}
+
+
+	private function alleLogDateien(): array
+	{
+		$logDir = rtrim(IPS_GetLogDir(), DIRECTORY_SEPARATOR);
+		$dateien = glob($logDir . DIRECTORY_SEPARATOR . 'logfile*.log') ?: [];
+		usort($dateien, fn($a,$b) => filemtime($a) <=> filemtime($b));
+		return $dateien;
 	}
 
 	private function wochentagName(string $datum): string
