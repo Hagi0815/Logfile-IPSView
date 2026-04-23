@@ -17,7 +17,7 @@ if ($a === 'Statistik') {
 // JSON-Detail-Endpunkte: Output-Buffer nutzen damit PHP-Warnings das JSON nicht verschmutzen
 $jsonAktionen = ['HeatmapDetail', 'TrendDetail', 'StundenDetail', 'WochentagDetail'];
 if (in_array($a, $jsonAktionen)) {
-    ob_start();
+    header('Content-Type: application/json; charset=utf-8');
     try {
         if ($a === 'HeatmapDetail') {
             $dow = isset($_GET['dow']) ? (int)$_GET['dow'] : -1;
@@ -34,12 +34,10 @@ if (in_array($a, $jsonAktionen)) {
             $dow = isset($_GET['dow']) ? (int)$_GET['dow'] : -1;
             $result = LOGANALYZER_WochentagDetail($instId, $dow);
         }
+        echo $result ?? json_encode(['error' => 'Unbekannter Fehler']);
     } catch (Throwable $e) {
-        $result = json_encode(['error' => $e->getMessage()]);
+        echo json_encode(['error' => $e->getMessage()]);
     }
-    ob_end_clean(); // alle PHP-Warnings verwerfen
-    header('Content-Type: application/json; charset=utf-8');
-    echo $result ?? json_encode(['error' => 'Unbekannter Fehler']);
     return;
 }
 

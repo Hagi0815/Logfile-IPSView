@@ -846,7 +846,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				$zstamp = (string)($p['zeitstempel'] ?? '');
 				if (!preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) continue;
 				$datum = $dm[3].'-'.$dm[2].'-'.$dm[1];
-						if (!$datum || (int)date('N', strtotime($datum)) !== $zielWt) continue;
+						if (!$datum || (int)@date('N', @strtotime($datum)) !== $zielWt) continue;
 				if (!preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm)) continue;
 				if ((int)$tm[1] !== $stunde) continue;
 				$ergebnis[] = ['zeit'=>$zstamp,'typ'=>(string)($p['typ']??''),'sender'=>(string)($p['sender']??''),'msg'=>(string)($p['meldung']??'')];
@@ -934,7 +934,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				$zstamp = (string)($p['zeitstempel'] ?? '');
 				if (!preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) continue;
 				$d = $dm[3].'-'.$dm[2].'-'.$dm[1];
-				if ((int)date('N', strtotime($d)) !== $zielWt) continue;
+				if (!$d || (int)@date('N', @strtotime($d)) !== $zielWt) continue;
 				$ergebnis[] = ['zeit'=>$zstamp,'typ'=>(string)($p['typ']??''),'sender'=>(string)($p['sender']??''),'msg'=>(string)($p['meldung']??'')];
 			}
 			fclose($h);
@@ -957,9 +957,9 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 	{
 		$alle = $this->alleLogDateien();
 		if (empty($alle)) return [];
-		$zielTs = strtotime($datum);
+		$zielTs = @strtotime($datum);
 		if (!$zielTs) return $alle;
-		$zielMidnight = strtotime(date('Y-m-d', $zielTs));
+		$zielMidnight = @strtotime(date('Y-m-d', (int)$zielTs));
 		$zielEnd      = $zielMidnight + 86399;
 		$kandidaten   = [];
 		// Eine Logdatei rotiert täglich -> wir suchen die Datei deren mtime
