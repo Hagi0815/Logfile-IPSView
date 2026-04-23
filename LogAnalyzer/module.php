@@ -267,11 +267,16 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 
 	public function ErstelleStatistik(): string
 	{
-		$logDatei = $this->leseAktuelleLogDatei();
 		$h = '/hook/LogAnalyzerIPSView_' . $this->InstanceID;
-		if (!is_file($logDatei)) {
-			return '<html><body style="background:#1a1a1a;color:#f88;padding:20px">Logdatei nicht gefunden.</body></html>';
+		// Alle Logfiles im Verzeichnis einlesen
+		$logDir = rtrim(IPS_GetLogDir(), DIRECTORY_SEPARATOR);
+		$alleLogfiles = glob($logDir . DIRECTORY_SEPARATOR . 'logfile*.log') ?: [];
+		usort($alleLogfiles, fn($a,$b) => filemtime($a) <=> filemtime($b)); // älteste zuerst
+		if (empty($alleLogfiles)) {
+			return '<html><body style="background:#1a1a1a;color:#f88;padding:20px">Keine Logdateien gefunden.</body></html>';
 		}
+		$logDatei = $this->leseAktuelleLogDatei(); // für Anzeigename
+		$anzahlDateien = count($alleLogfiles);
 
 		// ── Daten sammeln ─────────────────────────────────────────
 		$fehlerCount    = [];
@@ -293,55 +298,54 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		$vor30   = date('Y-m-d', strtotime('-30 days'));
 		$tage    = ['Mo','Di','Mi','Do','Fr','Sa','So'];
 
-		$handle = @fopen($logDatei, 'rb');
-		if ($handle) {
-			while (($zeile = fgets($handle)) !== false) {
-				$p = $this->parseLogZeile($zeile);
-				if ($p === null) continue;
-				$gesamt++;
-				$typ    = strtoupper((string)($p['typ'] ?? ''));
-				$sender = (string)($p['sender'] ?? '');
-				$msg    = trim((string)($p['meldung'] ?? ''));
-				$zstamp = (string)($p['zeitstempel'] ?? '');
-
-				$typCount[$typ] = ($typCount[$typ] ?? 0) + 1;
-				$senderCount[$sender] = ($senderCount[$sender] ?? 0) + 1;
-				$senderTypCount[$sender][$typ] = ($senderTypCount[$sender][$typ] ?? 0) + 1;
-
-				// Datum: DD.MM.YYYY -> YYYY-MM-DD
-				$datum = '';
-				if (preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) {
-					$datum = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
-				}
-
-				// Uhrzeit
-				preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm);
-				$stunde = isset($tm[1]) ? (int)$tm[1] : -1;
-
-				if ($datum) {
-					$dow = ((int)date('N', strtotime($datum)) - 1);
-					$wochentagCount[$dow]++;
-					if ($stunde >= 0) {
-						$heatmap[$dow][$stunde] = ($heatmap[$dow][$stunde] ?? 0) + 1;
+		foreach ($alleLogfiles as $logFilePfad) {
+			$handle = @fopen($logFilePfad, 'rb');
+			if (!$handle) continue;
+				while (($zeile = fgets($handle)) !== false) {
+					$p = $this->parseLogZeile($zeile);
+					if ($p === null) continue;
+					$gesamt++;
+					$typ    = strtoupper((string)($p['typ'] ?? ''));
+					$sender = (string)($p['sender'] ?? '');
+					$msg    = trim((string)($p['meldung'] ?? ''));
+					$zstamp = (string)($p['zeitstempel'] ?? '');
+	
+					$typCount[$typ] = ($typCount[$typ] ?? 0) + 1;
+					$senderCount[$sender] = ($senderCount[$sender] ?? 0) + 1;
+					$senderTypCount[$sender][$typ] = ($senderTypCount[$sender][$typ] ?? 0) + 1;
+	
+					// Datum: DD.MM.YYYY -> YYYY-MM-DD
+					$datum = '';
+					if (preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) {
+						$datum = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
 					}
-					if ($datum >= $vor30) {
+	
+					// Uhrzeit
+					preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm);
+					$stunde = isset($tm[1]) ? (int)$tm[1] : -1;
+	
+					if ($datum) {
+						$dow = ((int)date('N', strtotime($datum)) - 1);
+						$wochentagCount[$dow]++;
+						if ($stunde >= 0) {
+							$heatmap[$dow][$stunde] = ($heatmap[$dow][$stunde] ?? 0) + 1;
+						}
 						$tageCount[$datum] = ($tageCount[$datum] ?? 0) + 1;
 					}
-				}
-
-				if (in_array($typ, ['ERROR','WARNING'], true)) {
-					$fehlerCount[$msg] = ($fehlerCount[$msg] ?? 0) + 1;
-					if (!isset($fehlerErstmals[$msg])) $fehlerErstmals[$msg] = $zstamp;
-					if ($stunde >= 0) {
-						$stundenCount[$stunde]++;  // alle Tage
-						$stundenMsgs[$stunde][$msg] = ($stundenMsgs[$stunde][$msg] ?? 0) + 1;
-						if ($datum === $heute) $stundenCountH[$stunde]++;
-						if ($datum === $gestern) $stundenCountG[$stunde]++;
+	
+					if (in_array($typ, ['ERROR','WARNING'], true)) {
+						$fehlerCount[$msg] = ($fehlerCount[$msg] ?? 0) + 1;
+						if (!isset($fehlerErstmals[$msg])) $fehlerErstmals[$msg] = $zstamp;
+						if ($stunde >= 0) {
+							$stundenCount[$stunde]++;  // alle Tage
+							$stundenMsgs[$stunde][$msg] = ($stundenMsgs[$stunde][$msg] ?? 0) + 1;
+							if ($datum === $heute) $stundenCountH[$stunde]++;
+							if ($datum === $gestern) $stundenCountG[$stunde]++;
+						}
+						$grpKey = preg_replace('/[0-9]+/', 'N', substr($msg, 0, 50));
+						$fehlerGruppen[$grpKey]['count'] = ($fehlerGruppen[$grpKey]['count'] ?? 0) + 1;
+						$fehlerGruppen[$grpKey]['msgs'][$msg] = ($fehlerGruppen[$grpKey]['msgs'][$msg] ?? 0) + 1;
 					}
-					$grpKey = preg_replace('/[0-9]+/', 'N', substr($msg, 0, 50));
-					$fehlerGruppen[$grpKey]['count'] = ($fehlerGruppen[$grpKey]['count'] ?? 0) + 1;
-					$fehlerGruppen[$grpKey]['msgs'][$msg] = ($fehlerGruppen[$grpKey]['msgs'][$msg] ?? 0) + 1;
-				}
 			}
 			fclose($handle);
 		}
@@ -401,13 +405,28 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			. '<text id="stunden-tip-m" font-size="8" fill="#999"></text>'
 			. '</g>';
 
-		// ── Chart 2: 30-Tage Trend (log-Skalierung) ──────────────
+		// ── Chart 2: Trend über alle verfügbaren Tage ───────────
 		$trendW = 700; $trendH = 120;
 		$tChartH = $trendH - 30;
-		$tageKeys = [];
-		for ($i = 29; $i >= 0; $i--) $tageKeys[] = date('Y-m-d', strtotime("-{$i} days"));
+		// Datumsbereich aus vorhandenen Daten ermitteln
+		$alleTageDaten = array_keys($tageCount);
+		if ($alleTageDaten) {
+			$erstTag = min($alleTageDaten);
+			$letzTag = $heute;
+			$tageSpanne = (int)round((strtotime($letzTag) - strtotime($erstTag)) / 86400) + 1;
+		} else {
+			$erstTag    = date('Y-m-d', strtotime('-29 days'));
+			$tageSpanne = 30;
+		}
+		$tageSpanne = max(7, min(365, $tageSpanne)); // 7–365 Tage
+		$tageKeys   = [];
+		for ($i = $tageSpanne - 1; $i >= 0; $i--) {
+			$tageKeys[] = date('Y-m-d', strtotime($letzTag . " -{$i} days"));
+		}
 		$trendBars = '';
-		$trendBarW = (int)(($trendW - 35) / 30);
+		$trendBarW = max(2, min(40, (int)(($trendW - 35) / count($tageKeys))));
+		// SVG-Breite an tatsächliche Daten anpassen
+		$trendWSvg = 35 + count($tageKeys) * $trendBarW;
 		$maxTagLog = $tageCount ? log(max($tageCount) + 1, 10) : 1;
 		if ($maxTagLog < 0.01) $maxTagLog = 1;
 		// Y-Achse (log)
@@ -415,7 +434,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		foreach ([1, 10, 100, 1000, 10000] as $yl) {
 			if ($yl > $maxTagVal * 1.2) break;
 			$yy = $trendH - 20 - (int)round(log($yl+1,10) / $maxTagLog * $tChartH);
-			$trendBars .= '<line x1="33" y1="' . $yy . '" x2="' . $trendW . '" y2="' . $yy . '" stroke="#2a2a2a" stroke-width="1"/>';
+			$trendBars .= '<line x1="33" y1="' . $yy . '" x2="' . $trendWSvg . '" y2="' . $yy . '" stroke="#2a2a2a" stroke-width="1"/>';
 			$trendBars .= '<text x="31" y="' . ($yy+3) . '" font-size="6" fill="#444" text-anchor="end">' . $yl . '</text>';
 		}
 		foreach ($tageKeys as $idx => $tag) {
@@ -425,9 +444,15 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			$fc = ($tag === $heute) ? '#f88' : ($tag === $gestern ? '#fa8' : '#4a6a8a');
 			$tagLabel = date('d.m.Y', strtotime($tag));
 			$tagWt = $tage[(int)date('N', strtotime($tag)) - 1];
-			if ($bh > 0) $trendBars .= '<rect x="' . ($x+1) . '" y="' . ($trendH-$bh-20) . '" width="' . ($trendBarW-2) . '" height="' . $bh . '" fill="' . $fc . '" rx="1"'
-				. ' data-d="' . htmlspecialchars($tagWt . ', ' . $tagLabel, ENT_QUOTES) . '" data-v="' . $v . '" data-datum="' . $tag . '" class="th" cursor="pointer"/>';
-			if ($idx % 5 === 0 || $tag === $heute) {
+			if ($bh > 0) {
+				$trendBars .= '<rect x="' . ($x+1) . '" y="' . ($trendH-$bh-20) . '" width="' . max(1,$trendBarW-2) . '" height="' . $bh . '" fill="' . $fc . '" rx="1"'
+					. ' data-d="' . htmlspecialchars($tagWt . ', ' . $tagLabel, ENT_QUOTES) . '" data-v="' . $v . '" data-datum="' . $tag . '" class="th" cursor="pointer"/>';
+			} else {
+				// Leerer Tag: dünne graue Linie als Platzhalter
+				$trendBars .= '<line x1="' . ($x + (int)($trendBarW/2)) . '" y1="' . ($trendH-20) . '" x2="' . ($x + (int)($trendBarW/2)) . '" y2="' . ($trendH-22) . '" stroke="#2a2a2a" stroke-width="1"/>';
+			}
+			$labelIntervall = $tageSpanne <= 14 ? 1 : ($tageSpanne <= 60 ? 7 : 30);
+			if ($idx % $labelIntervall === 0 || $tag === $heute) {
 				$lbl = date('d.m', strtotime($tag));
 				$trendBars .= '<text x="' . ($x+1) . '" y="' . ($trendH-4) . '" font-size="7" fill="#444">' . $lbl . '</text>';
 			}
@@ -569,7 +594,9 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				. '</tr>';
 		}
 
-		$dateiname    = htmlspecialchars(basename($logDatei));
+		$dateiname    = ($anzahlDateien === 1)
+			? htmlspecialchars(basename($alleLogfiles[0]))
+			: $anzahlDateien . ' Logdateien';
 		$ts           = date('d.m.Y H:i:s');
 		$fehlerHeuteH = number_format(array_sum($stundenCountH));
 		$fehlerGesH   = number_format(array_sum($stundenCountG));
@@ -599,6 +626,11 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			. '#hmoverlay .cls{background:#2a2a2a;color:#aaa;border:1px solid #3a3a3a;border-radius:4px;padding:3px 10px;cursor:pointer;font-size:12px}'
 			. '#hmoverlay .cls:hover{background:#3a3a3a}'
 			. '#hmpanel-body table{width:100%;border-collapse:collapse}'
+			. '.pgbar{display:flex;align-items:center;gap:6px;padding:8px 14px;border-top:1px solid #2a2a2a;background:#1a1a1a;position:sticky;bottom:0;border-radius:0 0 8px 8px}'
+			. '.pgbtn{background:#2a2a2a;color:#aaa;border:1px solid #3a3a3a;border-radius:4px;padding:3px 10px;cursor:pointer;font-size:12px}'
+			. '.pgbtn:hover{background:#3a3a3a}'
+			. '.pgbtn[disabled]{opacity:.3;cursor:default;pointer-events:none}'
+			. '.pginfo{color:#555;font-size:11px}'
 			. '#hmpanel-body td{padding:4px 8px;font-size:11px;border-bottom:1px solid #252525;vertical-align:top;word-break:break-word}'
 			. '#hmpanel-body tr:hover td{background:#252525}'
 			. '.typ-e{color:#f66;font-weight:bold}.typ-w{color:#fa0;font-weight:bold}.typ-d{color:#7ecfff}.typ-m{color:#888}.typ-s{color:#88ffcc}.typ-n{color:#d0aaff}.typ-c{color:#ffcc88}'
@@ -607,10 +639,19 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			. '<div id="chtip"></div>'
 			. '<div id="hmoverlay"><div class="panel">'
 			. '<div class="phead"><h2 id="hmpanel-title">Details</h2><button class="cls" onclick="closeOverlay()">✕ Schließen</button></div>'
-			. '<div id="hmpanel-body" style="padding:10px"></div>'
+			. '<div id="hmpanel-body"></div>'
+			. '<div class="pgbar">'
+			. '<button class="pgbtn" id="pg-first" onclick="hmPage(0)">&#8676;</button>'
+			. '<button class="pgbtn" id="pg-prev" onclick="hmPage(_hmPage-1)">&#8249;</button>'
+			. '<span class="pginfo" id="pg-info"></span>'
+			. '<button class="pgbtn" id="pg-next" onclick="hmPage(_hmPage+1)">&#8250;</button>'
+			. '<button class="pgbtn" id="pg-last" onclick="hmPage(_hmPages-1)">&#8677;</button>'
+			. '<span class="pginfo" id="pg-total"></span>'
+			. '</div>'
 			. '</div></div>'
 			. '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
 			. '<span style="font-size:14px;color:#ffd080;font-weight:bold">📊 Statistik – ' . $dateiname . '</span>'
+			. ($anzahlDateien > 1 ? '<span style="color:#444;font-size:10px;margin-left:8px">(' . implode(', ', array_map('basename', $alleLogfiles)) . ')</span>' : '')
 			. '<a href="' . $h . '" style="background:#222;color:#aaa;border:1px solid #333;border-radius:4px;padding:2px 10px;text-decoration:none;font-size:11px">← Zurück</a>'
 			. '</div>'
 			. '<div class="meta">'
@@ -628,8 +669,9 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			. '</div>'
 			// Chart 2
 			. '<div class="card">'
-			. '<h3>📈 Verlauf letzte 30 Tage <span style="font-weight:normal;text-transform:none;font-size:10px;color:#f88">■ Heute</span> <span style="font-size:10px;color:#444;font-weight:normal;text-transform:none">(log. Skala)</span></h3>'
-			. '<svg viewBox="0 0 ' . $trendW . ' ' . $trendH . '" width="100%" style="background:#161616;border-radius:3px">' . $trendBars . '</svg>'
+			. '<h3>📈 Verlauf <span id="trend-title-tage"></span><span style="font-weight:normal;text-transform:none;font-size:10px;color:#f88"> ■ Heute</span> <span style="font-size:10px;color:#444;font-weight:normal;text-transform:none">(log. Skala)</span></h3>'
+			. '<script>document.getElementById("trend-title-tage").textContent="' . $tageSpanne . ' Tage";</script>'
+			. '<svg viewBox="0 0 ' . $trendWSvg . ' ' . $trendH . '" width="100%" style="background:#161616;border-radius:3px">' . $trendBars . '</svg>'
 			. '</div>'
 			// Charts 3+4
 			. '<div class="grid3">'
@@ -699,40 +741,62 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			.   '});'
 			. '});'
 			. 'var _apiBase="' . $h . '";'
+			. 'var _hmData=null,_hmPage=0,_hmPages=0,_hmPgSize=100;'
+			. 'var _typCls={ERROR:"typ-e",WARNING:"typ-w",DEBUG:"typ-d",MESSAGE:"typ-m",SUCCESS:"typ-s",NOTIFY:"typ-n",CUSTOM:"typ-c"};'
+			. 'function hmRenderPage(page){'
+			.   'if(!_hmData)return;'
+			.   '_hmPage=Math.max(0,Math.min(page,_hmPages-1));'
+			.   'var start=_hmPage*_hmPgSize,end=Math.min(start+_hmPgSize,_hmData.length);'
+			.   'var slice=_hmData.slice(start,end);'
+			.   'var html="<table><thead><tr style=\\"background:#252525\\">";'
+			.   'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666;width:140px\\">Zeit</th>";'
+			.   'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666;width:75px\\">Typ</th>";'
+			.   'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666;width:130px\\">Sender</th>";'
+			.   'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666\\">Meldung</th>";'
+			.   'html+="</tr></thead><tbody>";'
+			.   'if(slice.length===0){html+="<tr><td colspan=4 style=\\"padding:20px;color:#555;text-align:center\\">Keine Einträge</td></tr>";}'
+			.   'slice.forEach(function(e){'
+			.     'var tc=_typCls[e.typ.toUpperCase()]||"typ-m";'
+			.     'html+="<tr><td style=\\"color:#555;white-space:nowrap\\">"+(e.zeit||"")+"</td>";'
+			.     'html+="<td class=\\""+tc+"\\">"+(e.typ||"")+"</td>";'
+			.     'html+="<td style=\\"color:#ffd080\\">"+(e.sender||"")+"</td>";'
+			.     'html+="<td style=\\"color:#ccc\\">"+(e.msg||"")+"</td></tr>";'
+			.   '});'
+			.   'html+="</tbody></table>";'
+			.   'document.getElementById("hmpanel-body").innerHTML=html;'
+			.   'document.getElementById("pg-info").textContent="Seite "+(page+1)+" / "+_hmPages;'
+			.   'document.getElementById("pg-total").textContent="("+start+"–"+(end-1)+" von "+_hmData.length+" Einträgen)";'
+			.   'document.getElementById("pg-first").disabled=(_hmPage===0);'
+			.   'document.getElementById("pg-prev").disabled=(_hmPage===0);'
+			.   'document.getElementById("pg-next").disabled=(_hmPage>=_hmPages-1);'
+			.   'document.getElementById("pg-last").disabled=(_hmPage>=_hmPages-1);'
+			. '}'
+			. 'function hmPage(p){hmRenderPage(p);document.getElementById("hmoverlay").scrollTop=0;}'
 			. 'function openOverlay(url,label,cnt){'
 			.   'hideTip();'
-			.   'var ov=document.getElementById("hmoverlay");'
+			.   '_hmData=null;_hmPage=0;'
 			.   'var title=document.getElementById("hmpanel-title");'
 			.   'var body=document.getElementById("hmpanel-body");'
-			.   'title.textContent=label+" ("+cnt+" Einträge)";'
+			.   'title.textContent=label+" (lade…)";'
 			.   'body.innerHTML="<div style=\\"padding:20px;color:#666\\">Lade…</div>";'
-			.   'ov.style.display="block";'
+			.   'document.getElementById("pg-info").textContent="";'
+			.   'document.getElementById("pg-total").textContent="";'
+			.   'document.getElementById("hmoverlay").style.display="block";'
 			.   'fetch(url)'
-			.     '.then(function(r){return r.json();})'
-			.     '.then(function(d){'
+			.     '.then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.text();})'
+			.     '.then(function(txt){'
+			.       'var jsonStart=txt.indexOf("{");'
+			.       'if(jsonStart<0){body.innerHTML="<p style=\\"color:#f66;padding:20px\\">Ungültige Antwort: "+txt.substring(0,200)+"</p>";return;}'
+			.       'var d;try{d=JSON.parse(txt.substring(jsonStart));}catch(ex){body.innerHTML="<p style=\\"color:#f66;padding:20px\\">JSON-Fehler: "+ex+"</p>";return;}'
 			.       'if(d.error){body.innerHTML="<p style=\\"color:#f66;padding:20px\\">Fehler: "+d.error+"</p>";return;}'
-			.       'var typCls={ERROR:"typ-e",WARNING:"typ-w",DEBUG:"typ-d",MESSAGE:"typ-m",SUCCESS:"typ-s",NOTIFY:"typ-n",CUSTOM:"typ-c"};'
-			.       'var html="<div style=\\"padding:8px 14px 4px;color:#555;font-size:11px\\">Letzte bis zu 300 Einträge – "+d.label+"</div>";'
-			.       'html+="<table><thead><tr style=\\"background:#252525\\">";'
-			.       'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666;width:140px\\">Zeit</th>";'
-			.       'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666;width:75px\\">Typ</th>";'
-			.       'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666;width:130px\\">Sender</th>";'
-			.       'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666\\">Meldung</th>";'
-			.       'html+="</tr></thead><tbody>";'
-			.       'if(d.eintraege.length===0){html+="<tr><td colspan=4 style=\\"padding:20px;color:#555;text-align:center\\">Keine Einträge gefunden</td></tr>";}'
-			.       'd.eintraege.forEach(function(e){'
-			.         'var tc=typCls[e.typ.toUpperCase()]||"typ-m";'
-			.         'html+="<tr>";'
-			.         'html+="<td style=\\"color:#555;white-space:nowrap\\">"+(e.zeit||"")+"</td>";'
-			.         'html+="<td class=\\""+tc+"\\">"+(e.typ||"")+"</td>";'
-			.         'html+="<td style=\\"color:#ffd080\\">"+(e.sender||"")+"</td>";'
-			.         'html+="<td style=\\"color:#ccc\\">"+(e.msg||"")+"</td>";'
-			.         'html+="</tr>";'
-			.       '});'
-			.       'html+="</tbody></table>";'
-			.       'body.innerHTML=html;'
+			.       '_hmData=d.eintraege||[];'
+			.       '_hmPages=Math.max(1,Math.ceil(_hmData.length/_hmPgSize));'
+			.       'var totalCount=d.count||_hmData.length;'
+			.       'var shownHint=(_hmData.length<totalCount?" – letzte "+_hmData.length+" von "+totalCount+" gezeigt":"");'
+			.       'title.textContent=d.label+" ("+totalCount+" Einträge"+shownHint+")";'
+			.       'hmRenderPage(0);'
 			.     '})'
-			.     '.catch(function(){body.innerHTML="<p style=\\"color:#f66;padding:20px\\">Fehler beim Laden</p>";});'
+			.     '.catch(function(err){body.innerHTML="<p style=\\"color:#f66;padding:20px\\">Fehler: "+err+"</p>";});'
 			. '}'
 			. 'function closeOverlay(){document.getElementById("hmoverlay").style.display="none";}'
 			. 'document.getElementById("hmoverlay").addEventListener("click",function(e){if(e.target===this)closeOverlay();});'
@@ -775,111 +839,84 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 	public function HeatmapDetail(int $dow, int $stunde): string
 	{
 		$tage    = ['Mo','Di','Mi','Do','Fr','Sa','So'];
-		$logDatei = $this->leseAktuelleLogDatei();
-		if ($dow < 0 || $dow > 6 || $stunde < 0 || $stunde > 23 || !is_file($logDatei)) {
+		if ($dow < 0 || $dow > 6 || $stunde < 0 || $stunde > 23) {
 			return json_encode(['error' => 'Ungültige Parameter'], JSON_UNESCAPED_UNICODE);
 		}
-
-		$zielWt    = $dow + 1; // date('N'): 1=Mo..7=So
-		$ergebnis  = [];
-		$handle    = @fopen($logDatei, 'rb');
-		if ($handle) {
-			while (($zeile = fgets($handle)) !== false) {
-				$p = $this->parseLogZeile($zeile);
-				if ($p === null) continue;
+		$zielWt   = $dow + 1;
+		$ergebnis = [];
+		foreach ($this->alleLogDateien() as $lf) {
+			$h = @fopen($lf, 'rb'); if (!$h) continue;
+			while (($zeile = fgets($h)) !== false) {
+				$p = $this->parseLogZeile($zeile); if ($p === null) continue;
 				$zstamp = (string)($p['zeitstempel'] ?? '');
-
-				// Datum extrahieren
 				if (!preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) continue;
-				$datum = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
-
-				// Wochentag und Stunde prüfen
-				if ((int)date('N', strtotime($datum)) !== $zielWt) continue;
+				$datum = $dm[3].'-'.$dm[2].'-'.$dm[1];
+						if (!$datum || (int)@date('N', @strtotime($datum)) !== $zielWt) continue;
 				if (!preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm)) continue;
 				if ((int)$tm[1] !== $stunde) continue;
-
-				$ergebnis[] = [
-					'zeit'   => $zstamp,
-					'typ'    => (string)($p['typ']     ?? ''),
-					'sender' => (string)($p['sender']  ?? ''),
-					'msg'    => (string)($p['meldung'] ?? ''),
-				];
+				$ergebnis[] = ['zeit'=>$zstamp,'typ'=>(string)($p['typ']??''),'sender'=>(string)($p['sender']??''),'msg'=>(string)($p['meldung']??'')];
 			}
-			fclose($handle);
+			fclose($h);
 		}
 
-		// Letzte 200 Treffer, neueste zuerst
-		$ergebnis = array_slice(array_reverse($ergebnis), 0, 200);
+		$gesamt = count($ergebnis);
+		$ergebnis = array_slice(array_reverse($ergebnis), 0, 500);
 
 		return json_encode([
 			'label'   => $tage[$dow] . ', ' . sprintf('%02d:00–%02d:59', $stunde, $stunde),
-			'count'   => count($ergebnis),
+			'count'   => $gesamt,
 			'eintraege' => $ergebnis,
 		], JSON_UNESCAPED_UNICODE);
 	}
 
 	public function TrendDetail(string $datum): string
 	{
-		$logDatei = $this->leseAktuelleLogDatei();
-		if (!$datum || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $datum) || !is_file($logDatei)) {
+		if (!$datum || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $datum)) {
 			return json_encode(['error' => 'Ungültige Parameter'], JSON_UNESCAPED_UNICODE);
 		}
-		$zielDatum = $datum; // YYYY-MM-DD
-		$ergebnis  = [];
-		$handle    = @fopen($logDatei, 'rb');
-		if ($handle) {
-			while (($zeile = fgets($handle)) !== false) {
-				$p = $this->parseLogZeile($zeile);
-				if ($p === null) continue;
+		$ergebnis = [];
+		foreach ($this->logDateienFuerDatum($datum) as $lf) {
+			$h = @fopen($lf, 'rb'); if (!$h) continue;
+			while (($zeile = fgets($h)) !== false) {
+				$p = $this->parseLogZeile($zeile); if ($p === null) continue;
 				$zstamp = (string)($p['zeitstempel'] ?? '');
 				if (!preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) continue;
-				$d = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
-				if ($d !== $zielDatum) continue;
-				$ergebnis[] = [
-					'zeit'   => $zstamp,
-					'typ'    => (string)($p['typ']    ?? ''),
-					'sender' => (string)($p['sender'] ?? ''),
-					'msg'    => (string)($p['meldung'] ?? ''),
-				];
+				if ($dm[3].'-'.$dm[2].'-'.$dm[1] !== $datum) continue;
+				$ergebnis[] = ['zeit'=>$zstamp,'typ'=>(string)($p['typ']??''),'sender'=>(string)($p['sender']??''),'msg'=>(string)($p['meldung']??'')];
 			}
-			fclose($handle);
+			fclose($h);
 		}
-		$ergebnis = array_slice(array_reverse($ergebnis), 0, 300);
-		$label = date('d.m.Y', strtotime($zielDatum)) . ' (' . $this->wochentagName($zielDatum) . ')';
-		return json_encode(['label' => $label, 'count' => count($ergebnis), 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
+		$gesamt = count($ergebnis);
+		$ergebnis = array_slice(array_reverse($ergebnis), 0, 500);
+		$label = date('d.m.Y', strtotime($datum)) . ' (' . $this->wochentagName($datum) . ')';
+		return json_encode(['label' => $label, 'count' => $gesamt, 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
 	}
 
 	public function StundenDetail(string $datum, int $stunde): string
 	{
-		$logDatei = $this->leseAktuelleLogDatei();
-		if ($stunde < 0 || $stunde > 23 || !is_file($logDatei)) {
+		if ($stunde < 0 || $stunde > 23) {
 			return json_encode(['error' => 'Ungültige Parameter'], JSON_UNESCAPED_UNICODE);
 		}
-		$heute    = date('Y-m-d');
-		$gestern  = date('Y-m-d', strtotime('-1 day'));
-		$alle     = ($datum === 'alle');
+		$heute     = date('Y-m-d');
+		$gestern   = date('Y-m-d', strtotime('-1 day'));
+		$alle      = ($datum === 'alle');
 		$zielDatum = ($datum === 'gestern') ? $gestern : ($alle ? null : $heute);
 		$ergebnis  = [];
-		$handle    = @fopen($logDatei, 'rb');
-		if ($handle) {
-			while (($zeile = fgets($handle)) !== false) {
-				$p = $this->parseLogZeile($zeile);
-				if ($p === null) continue;
+		foreach ($this->alleLogDateien() as $lf) {
+			$h = @fopen($lf, 'rb'); if (!$h) continue;
+			while (($zeile = fgets($h)) !== false) {
+				$p = $this->parseLogZeile($zeile); if ($p === null) continue;
 				$zstamp = (string)($p['zeitstempel'] ?? '');
 				if (!preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) continue;
-				$d = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
+				$d = $dm[3].'-'.$dm[2].'-'.$dm[1];
 				if (!$alle && $d !== $zielDatum) continue;
 				if (!preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm)) continue;
 				if ((int)$tm[1] !== $stunde) continue;
-				$ergebnis[] = [
-					'zeit'   => $zstamp,
-					'typ'    => (string)($p['typ']    ?? ''),
-					'sender' => (string)($p['sender'] ?? ''),
-					'msg'    => (string)($p['meldung'] ?? ''),
-				];
+				$ergebnis[] = ['zeit'=>$zstamp,'typ'=>(string)($p['typ']??''),'sender'=>(string)($p['sender']??''),'msg'=>(string)($p['meldung']??'')];
 			}
-			fclose($handle);
+			fclose($h);
 		}
+		$gesamt = count($ergebnis);
 		$ergebnis = array_slice(array_reverse($ergebnis), 0, 500);
 		if ($alle) {
 			$label = sprintf('%02d:00–%02d:59 Uhr (alle Tage)', $stunde, $stunde);
@@ -887,44 +924,82 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			$tagLabel = ($datum === 'gestern') ? 'Gestern' : 'Heute';
 			$label = $tagLabel . ', ' . sprintf('%02d:00–%02d:59', $stunde, $stunde);
 		}
-		return json_encode(['label' => $label, 'count' => count($ergebnis), 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
+		return json_encode(['label' => $label, 'count' => $gesamt, 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
 	}
 
 	public function WochentagDetail(int $dow): string
 	{
 		$tage     = ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag','Sonntag'];
-		$logDatei = $this->leseAktuelleLogDatei();
-		if ($dow < 0 || $dow > 6 || !is_file($logDatei)) {
+		if ($dow < 0 || $dow > 6) {
 			return json_encode(['error' => 'Ungültige Parameter'], JSON_UNESCAPED_UNICODE);
 		}
 		$zielWt   = $dow + 1;
 		$ergebnis = [];
-		$handle   = @fopen($logDatei, 'rb');
-		if ($handle) {
-			while (($zeile = fgets($handle)) !== false) {
-				$p = $this->parseLogZeile($zeile);
-				if ($p === null) continue;
+		foreach ($this->alleLogDateien() as $lf) {
+			$h = @fopen($lf, 'rb'); if (!$h) continue;
+			while (($zeile = fgets($h)) !== false) {
+				$p = $this->parseLogZeile($zeile); if ($p === null) continue;
 				$zstamp = (string)($p['zeitstempel'] ?? '');
 				if (!preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) continue;
-				$d = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
-				if ((int)date('N', strtotime($d)) !== $zielWt) continue;
-				$ergebnis[] = [
-					'zeit'   => $zstamp,
-					'typ'    => (string)($p['typ']    ?? ''),
-					'sender' => (string)($p['sender'] ?? ''),
-					'msg'    => (string)($p['meldung'] ?? ''),
-				];
+				$d = $dm[3].'-'.$dm[2].'-'.$dm[1];
+				if (!$d || (int)@date('N', @strtotime($d)) !== $zielWt) continue;
+				$ergebnis[] = ['zeit'=>$zstamp,'typ'=>(string)($p['typ']??''),'sender'=>(string)($p['sender']??''),'msg'=>(string)($p['meldung']??'')];
 			}
-			fclose($handle);
+			fclose($h);
 		}
-		$ergebnis = array_slice(array_reverse($ergebnis), 0, 300);
-		return json_encode(['label' => $tage[$dow], 'count' => count($ergebnis), 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
+		$gesamt = count($ergebnis);
+		$ergebnis = array_slice(array_reverse($ergebnis), 0, 500);
+		return json_encode(['label' => $tage[$dow], 'count' => $gesamt, 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
+	}
+
+
+	private function alleLogDateien(): array
+	{
+		$logDir = rtrim(IPS_GetLogDir(), DIRECTORY_SEPARATOR);
+		$dateien = @glob($logDir . DIRECTORY_SEPARATOR . 'logfile*.log') ?: [];
+		$dateien = array_filter($dateien, 'is_file');
+		@usort($dateien, fn($a,$b) => @filemtime($a) <=> @filemtime($b));
+		return $dateien;
+	}
+
+	// Gibt Logdateien zurück die wahrscheinlich Einträge für ein bestimmtes Datum enthalten
+	private function logDateienFuerDatum(string $datum): array
+	{
+		$alle = $this->alleLogDateien();
+		if (empty($alle)) return [];
+		$zielTs = @strtotime($datum);
+		if (!$zielTs) return $alle;
+		$zielMidnight = @strtotime(date('Y-m-d', (int)$zielTs));
+		$zielEnd      = $zielMidnight + 86399;
+		$kandidaten   = [];
+		// Eine Logdatei rotiert täglich -> wir suchen die Datei deren mtime
+		// am dichtesten am Zieldatum liegt (±1 Tag Puffer)
+		foreach ($alle as $i => $datei) {
+			$mtime = (int)@filemtime($datei);
+			$prev  = ($i > 0) ? (int)@filemtime($alle[$i-1]) : 0;
+			// Datei enthält Einträge zwischen prev-mtime und eigenem mtime
+			$vonTs = $prev ?: ($mtime - 86400);
+			if ($zielEnd >= $vonTs && $zielMidnight <= $mtime + 86400) {
+				$kandidaten[] = $datei;
+			}
+		}
+		return $kandidaten ?: $alle;
+	}
+
+	// Gibt Logdateien für einen Wochentag zurück (alle relevanten)
+	private function logDateienFuerWochentag(int $dow): array
+	{
+		// Wochentag kommt in vielen Dateien vor -> alle lesen, aber mit Limit
+		return $this->alleLogDateien();
 	}
 
 	private function wochentagName(string $datum): string
 	{
+		if (!$datum) return '';
 		$tage = ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag','Sonntag'];
-		return $tage[(int)date('N', strtotime($datum)) - 1] ?? '';
+		$ts = strtotime($datum);
+		if (!$ts) return '';
+		return $tage[(int)date('N', $ts) - 1] ?? '';
 	}
 
 
