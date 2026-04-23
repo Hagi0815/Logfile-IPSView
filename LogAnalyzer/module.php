@@ -265,6 +265,669 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		return $this->erstelleHtmlMitLogDatei(null);
 	}
 
+	public function ErstelleStatistik(): string
+	{
+		$logDatei = $this->leseAktuelleLogDatei();
+		$h = '/hook/LogAnalyzerIPSView_' . $this->InstanceID;
+		if (!is_file($logDatei)) {
+			return '<html><body style="background:#1a1a1a;color:#f88;padding:20px">Logdatei nicht gefunden.</body></html>';
+		}
+
+		// ── Daten sammeln ─────────────────────────────────────────
+		$fehlerCount    = [];
+		$fehlerErstmals = [];
+		$senderCount    = [];
+		$senderTypCount = [];
+		$stundenCount   = array_fill(0, 24, 0);  // alle Tage (für Chart)
+		$stundenCountH  = array_fill(0, 24, 0);  // nur heute (für Meta)
+		$stundenCountG  = array_fill(0, 24, 0);  // nur gestern (für Meta)
+		$stundenMsgs    = array_fill(0, 24, []);  // alle Tage
+		$wochentagCount = array_fill(0, 7, 0);
+		$tageCount      = [];
+		$typCount       = [];
+		$heatmap        = [];
+		$fehlerGruppen  = [];
+		$gesamt = 0;
+		$heute   = date('Y-m-d');
+		$gestern = date('Y-m-d', strtotime('-1 day'));
+		$vor30   = date('Y-m-d', strtotime('-30 days'));
+		$tage    = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+
+		$handle = @fopen($logDatei, 'rb');
+		if ($handle) {
+			while (($zeile = fgets($handle)) !== false) {
+				$p = $this->parseLogZeile($zeile);
+				if ($p === null) continue;
+				$gesamt++;
+				$typ    = strtoupper((string)($p['typ'] ?? ''));
+				$sender = (string)($p['sender'] ?? '');
+				$msg    = trim((string)($p['meldung'] ?? ''));
+				$zstamp = (string)($p['zeitstempel'] ?? '');
+
+				$typCount[$typ] = ($typCount[$typ] ?? 0) + 1;
+				$senderCount[$sender] = ($senderCount[$sender] ?? 0) + 1;
+				$senderTypCount[$sender][$typ] = ($senderTypCount[$sender][$typ] ?? 0) + 1;
+
+				// Datum: DD.MM.YYYY -> YYYY-MM-DD
+				$datum = '';
+				if (preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) {
+					$datum = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
+				}
+
+				// Uhrzeit
+				preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm);
+				$stunde = isset($tm[1]) ? (int)$tm[1] : -1;
+
+				if ($datum) {
+					$dow = ((int)date('N', strtotime($datum)) - 1);
+					$wochentagCount[$dow]++;
+					if ($stunde >= 0) {
+						$heatmap[$dow][$stunde] = ($heatmap[$dow][$stunde] ?? 0) + 1;
+					}
+					if ($datum >= $vor30) {
+						$tageCount[$datum] = ($tageCount[$datum] ?? 0) + 1;
+					}
+				}
+
+				if (in_array($typ, ['ERROR','WARNING'], true)) {
+					$fehlerCount[$msg] = ($fehlerCount[$msg] ?? 0) + 1;
+					if (!isset($fehlerErstmals[$msg])) $fehlerErstmals[$msg] = $zstamp;
+					if ($stunde >= 0) {
+						$stundenCount[$stunde]++;  // alle Tage
+						$stundenMsgs[$stunde][$msg] = ($stundenMsgs[$stunde][$msg] ?? 0) + 1;
+						if ($datum === $heute) $stundenCountH[$stunde]++;
+						if ($datum === $gestern) $stundenCountG[$stunde]++;
+					}
+					$grpKey = preg_replace('/[0-9]+/', 'N', substr($msg, 0, 50));
+					$fehlerGruppen[$grpKey]['count'] = ($fehlerGruppen[$grpKey]['count'] ?? 0) + 1;
+					$fehlerGruppen[$grpKey]['msgs'][$msg] = ($fehlerGruppen[$grpKey]['msgs'][$msg] ?? 0) + 1;
+				}
+			}
+			fclose($handle);
+		}
+
+		arsort($fehlerCount);
+		$topFehler = array_slice($fehlerCount, 0, 25, true);
+		arsort($senderCount);
+		$topSender = array_slice($senderCount, 0, 15, true);
+		uasort($fehlerGruppen, fn($a,$b) => $b['count'] <=> $a['count']);
+		$topGruppen  = array_slice($fehlerGruppen, 0, 10, true);
+		$maxGruppen  = $topGruppen ? max(array_column($topGruppen, 'count')) : 1;
+		ksort($tageCount);
+
+		$maxStunden   = max(max($stundenCount) ?: 1, max($stundenCountG) ?: 1);
+		$maxFehler    = $topFehler ? max($topFehler) : 1;
+		$maxSender    = $topSender ? max($topSender) : 1;
+		$maxWochentag = max($wochentagCount) ?: 1;
+		$gesamtFehler = ($typCount['ERROR'] ?? 0) + ($typCount['WARNING'] ?? 0);
+		$typFarben    = ['ERROR'=>'#f66','WARNING'=>'#fa0','DEBUG'=>'#7ecfff','MESSAGE'=>'#888','CUSTOM'=>'#ffcc88','NOTIFY'=>'#d0aaff','SUCCESS'=>'#88ffcc'];
+
+		// ── Chart 1: Alle Tage aggregiert ────────────────────────────
+		$svgW = 700; $svgH = 150; $barW = (int)($svgW / 24);
+		$chartH = $svgH - 30; // Platz für X-Achse + Y-Achse Labels
+		$svgBars = '';
+		// Y-Achse Linien
+		for ($yi = 1; $yi <= 4; $yi++) {
+			$yv = (int)round($maxStunden * $yi / 4);
+			$yy = $svgH - 22 - (int)round($chartH * $yi / 4);
+			$svgBars .= '<line x1="22" y1="' . $yy . '" x2="' . $svgW . '" y2="' . $yy . '" stroke="#2a2a2a" stroke-width="1"/>';
+			$svgBars .= '<text x="20" y="' . ($yy+3) . '" font-size="7" fill="#444" text-anchor="end">' . $yv . '</text>';
+		}
+		for ($i = 0; $i < 24; $i++) {
+			$vH = $stundenCount[$i];
+			$vG = $stundenCountG[$i];
+			$bhH = $vH > 0 ? max(2, (int)round($vH / $maxStunden * $chartH)) : 0;
+			$bhG = $vG > 0 ? max(2, (int)round($vG / $maxStunden * $chartH)) : 0;
+			$x  = 22 + $i * (int)(($svgW - 22) / 24);
+			$bw = (int)(($svgW - 22) / 24);
+			$lx = $x + (int)($bw/2) - 4;
+			// Gestern
+			if ($bhG > 0) $svgBars .= '<rect x="' . ($x+1) . '" y="' . ($svgH-$bhG-22) . '" width="' . ($bw-2) . '" height="' . $bhG . '" fill="#3a3a3a" rx="2" pointer-events="none"/>';
+			// Heute
+			$fc = $vH > $maxStunden * 0.7 ? '#f66' : ($vH > $maxStunden * 0.3 ? '#fa0' : '#5a9');
+			if ($bhH > 0) $svgBars .= '<rect x="' . ($x+3) . '" y="' . ($svgH-$bhH-22) . '" width="' . ($bw-6) . '" height="' . $bhH . '" fill="' . $fc . '" rx="2" pointer-events="none"/>';
+			// Hover
+			$topMsg = '';
+			if (!empty($stundenMsgs[$i])) { arsort($stundenMsgs[$i]); $topMsg = array_key_first($stundenMsgs[$i]); if (strlen($topMsg)>60) $topMsg=substr($topMsg,0,60).'…'; }
+			$svgBars .= '<rect x="' . $x . '" y="0" width="' . $bw . '" height="' . ($svgH-18) . '" fill="transparent" data-h="' . sprintf('%02d:00',$i) . '" data-c="' . $stundenCountH[$i] . '" data-g="' . $vG . '" data-tot="' . $vH . '" data-m="' . htmlspecialchars($topMsg, ENT_QUOTES) . '" class="sh" cursor="pointer"/>';
+			$svgBars .= '<text x="' . $lx . '" y="' . ($svgH-5) . '" font-size="8" fill="#444">' . sprintf('%02d',$i) . '</text>';
+			if ($vH > 0) $svgBars .= '<text x="' . $lx . '" y="' . ($svgH-$bhH-25) . '" font-size="7" fill="#aaa">' . $vH . '</text>';
+		}
+		$svgBars .= '<g id="stunden-tip" visibility="hidden" pointer-events="none">'
+			. '<rect id="stunden-tip-bg" rx="4" fill="#1e1e2a" stroke="#555" stroke-width="1"/>'
+			. '<text id="stunden-tip-h" font-size="10" font-weight="bold" fill="#ffd080"></text>'
+			. '<text id="stunden-tip-c" font-size="9" fill="#f88"></text>'
+			. '<text id="stunden-tip-g" font-size="9" fill="#555"></text>'
+			. '<text id="stunden-tip-m" font-size="8" fill="#999"></text>'
+			. '</g>';
+
+		// ── Chart 2: 30-Tage Trend (log-Skalierung) ──────────────
+		$trendW = 700; $trendH = 120;
+		$tChartH = $trendH - 30;
+		$tageKeys = [];
+		for ($i = 29; $i >= 0; $i--) $tageKeys[] = date('Y-m-d', strtotime("-{$i} days"));
+		$trendBars = '';
+		$trendBarW = (int)(($trendW - 35) / 30);
+		$maxTagLog = $tageCount ? log(max($tageCount) + 1, 10) : 1;
+		if ($maxTagLog < 0.01) $maxTagLog = 1;
+		// Y-Achse (log)
+		$maxTagVal = $tageCount ? max($tageCount) : 0;
+		foreach ([1, 10, 100, 1000, 10000] as $yl) {
+			if ($yl > $maxTagVal * 1.2) break;
+			$yy = $trendH - 20 - (int)round(log($yl+1,10) / $maxTagLog * $tChartH);
+			$trendBars .= '<line x1="33" y1="' . $yy . '" x2="' . $trendW . '" y2="' . $yy . '" stroke="#2a2a2a" stroke-width="1"/>';
+			$trendBars .= '<text x="31" y="' . ($yy+3) . '" font-size="6" fill="#444" text-anchor="end">' . $yl . '</text>';
+		}
+		foreach ($tageKeys as $idx => $tag) {
+			$v = $tageCount[$tag] ?? 0;
+			$bh = $v > 0 ? max(2, (int)round(log($v+1,10) / $maxTagLog * $tChartH)) : 0;
+			$x  = 34 + $idx * $trendBarW;
+			$fc = ($tag === $heute) ? '#f88' : ($tag === $gestern ? '#fa8' : '#4a6a8a');
+			$tagLabel = date('d.m.Y', strtotime($tag));
+			$tagWt = $tage[(int)date('N', strtotime($tag)) - 1];
+			if ($bh > 0) $trendBars .= '<rect x="' . ($x+1) . '" y="' . ($trendH-$bh-20) . '" width="' . ($trendBarW-2) . '" height="' . $bh . '" fill="' . $fc . '" rx="1"'
+				. ' data-d="' . htmlspecialchars($tagWt . ', ' . $tagLabel, ENT_QUOTES) . '" data-v="' . $v . '" data-datum="' . $tag . '" class="th" cursor="pointer"/>';
+			if ($idx % 5 === 0 || $tag === $heute) {
+				$lbl = date('d.m', strtotime($tag));
+				$trendBars .= '<text x="' . ($x+1) . '" y="' . ($trendH-4) . '" font-size="7" fill="#444">' . $lbl . '</text>';
+			}
+			if ($v > 0 && $bh > 12) $trendBars .= '<text x="' . ($x+2) . '" y="' . ($trendH-$bh-22) . '" font-size="6" fill="#666">' . $v . '</text>';
+		}
+
+		// ── Chart 3: Heatmap ──────────────────────────────────────
+		$hmW = 700; $hmCellW = (int)(($hmW - 24) / 24); $hmCellH = 24;
+		$hmH = 7 * $hmCellH + 24;
+		$hmMax = 1;
+		foreach ($heatmap as $row) foreach ($row as $v) if ($v > $hmMax) $hmMax = $v;
+		$hmSvg = '';
+		// Stunden-Labels oben
+		for ($h2 = 0; $h2 < 24; $h2 += 3) {
+			$hmSvg .= '<text x="' . (24 + $h2*$hmCellW + 2) . '" y="10" font-size="7" fill="#444">' . sprintf('%02d',$h2) . '</text>';
+		}
+		for ($d = 0; $d < 7; $d++) {
+			$y = $d * $hmCellH + 14;
+			$hmSvg .= '<text x="20" y="' . ($y+15) . '" font-size="8" fill="#666" text-anchor="end">' . $tage[$d] . '</text>';
+			for ($h2 = 0; $h2 < 24; $h2++) {
+				$v = $heatmap[$d][$h2] ?? 0;
+				$cx = 24 + $h2 * $hmCellW;
+				$hmLabel2 = htmlspecialchars($tage[$d] . ', ' . sprintf('%02d:00',$h2), ENT_QUOTES);
+				if ($v > 0) {
+					$intensity = min(1.0, $v / $hmMax);
+					$r = (int)(40 + $intensity * 190);
+					$gg = (int)(10 + $intensity * 10);
+					$b = (int)(10 + $intensity * 10);
+					$fill = sprintf('rgb(%d,%d,%d)', $r, $gg, $b);
+					$hmSvg .= '<rect x="' . $cx . '" y="' . $y . '" width="' . ($hmCellW-1) . '" height="' . ($hmCellH-2) . '" fill="' . $fill . '" rx="1"'
+						. ' data-d="' . $hmLabel2 . '" data-v="' . $v . '" data-dow="' . $d . '" data-hr="' . $h2 . '" class="hm" cursor="pointer"/>';
+					if ($hmCellW >= 20) {
+						$textCol = $intensity > 0.6 ? '#fff' : '#aaa';
+						$hmSvg .= '<text x="' . ($cx + (int)($hmCellW/2)) . '" y="' . ($y+15) . '" font-size="7" fill="' . $textCol . '" text-anchor="middle" pointer-events="none">' . $v . '</text>';
+					}
+				} else {
+					$hmSvg .= '<rect x="' . $cx . '" y="' . $y . '" width="' . ($hmCellW-1) . '" height="' . ($hmCellH-2) . '" fill="#1e1e1e" rx="1"/>';
+				}
+			}
+		}
+
+		// ── Chart 4: Wochentag ────────────────────────────────────
+		$wtW = 300; $wtH = 120;
+		$wtChartH = $wtH - 30;
+		$wtBarW = (int)(($wtW - 20) / 7);
+		$wtSvg = '';
+		// Y-Achse
+		for ($yi = 1; $yi <= 3; $yi++) {
+			$yv = (int)round($maxWochentag * $yi / 3);
+			$yy = $wtH - 20 - (int)round($wtChartH * $yi / 3);
+			$wtSvg .= '<line x1="18" y1="' . $yy . '" x2="' . $wtW . '" y2="' . $yy . '" stroke="#2a2a2a" stroke-width="1"/>';
+			$wtSvg .= '<text x="16" y="' . ($yy+3) . '" font-size="6" fill="#444" text-anchor="end">' . $yv . '</text>';
+		}
+		for ($d = 0; $d < 7; $d++) {
+			$v = $wochentagCount[$d];
+			$bh = $v > 0 ? max(2, (int)round($v / $maxWochentag * $wtChartH)) : 0;
+			$x  = 20 + $d * $wtBarW;
+			$fc = $d >= 5 ? '#7a5a2a' : '#3a6a5a';
+			if ($bh > 0) {
+				$wtSvg .= '<rect x="' . ($x+2) . '" y="' . ($wtH-$bh-20) . '" width="' . ($wtBarW-4) . '" height="' . $bh . '" fill="' . $fc . '" rx="2"'
+					. ' data-d="' . htmlspecialchars($tage[$d], ENT_QUOTES) . '" data-v="' . $v . '" data-dow="' . $d . '" class="wt" cursor="pointer"/>';
+				if ($bh > 14) $wtSvg .= '<text x="' . ($x + (int)($wtBarW/2)) . '" y="' . ($wtH-$bh-22) . '" font-size="7" fill="#888" text-anchor="middle" pointer-events="none">' . $v . '</text>';
+			}
+			$wtSvg .= '<text x="' . ($x + (int)($wtBarW/2)) . '" y="' . ($wtH-5) . '" font-size="8" fill="#555" text-anchor="middle">' . $tage[$d] . '</text>';
+		}
+
+		// ── Tabelle: Top-Fehler ───────────────────────────────────
+		$fehlerRows = '';
+		$rank = 1;
+		foreach ($topFehler as $msg => $cnt) {
+			$pct    = (int)round($cnt / $maxFehler * 100);
+			$msgH   = htmlspecialchars(strlen($msg)>120 ? substr($msg,0,120).'…' : $msg);
+			$erst   = htmlspecialchars(substr($fehlerErstmals[$msg] ?? '', 0, 16));
+			$fc2    = $rank <= 3 ? '#f66' : ($rank <= 8 ? '#fa0' : '#888');
+			$bgRank = $rank <= 3 ? 'background:#1a0a0a' : '';
+			$fehlerRows .= '<tr style="' . $bgRank . '">'
+				. '<td style="color:#444;width:24px;text-align:right;padding-right:6px">' . $rank . '</td>'
+				. '<td style="color:' . $fc2 . ';font-weight:bold;width:45px;text-align:right">' . $cnt . '×</td>'
+				. '<td style="color:#555;width:115px;font-size:11px;padding:0 6px">' . $erst . '</td>'
+				. '<td><div style="background:' . $fc2 . ';opacity:0.7;height:3px;width:' . $pct . '%;border-radius:2px;margin-bottom:3px"></div>'
+				. '<span style="font-size:11px;color:#bbb">' . $msgH . '</span></td>'
+				. '</tr>';
+			$rank++;
+		}
+
+		// ── Tabelle: Fehler-Gruppen ───────────────────────────────
+		$gruppenRows = '';
+		foreach ($topGruppen as $grpKey => $grp) {
+			$cnt      = $grp['count'];
+			$varCount = count($grp['msgs']);
+			arsort($grp['msgs']);
+			$topMsg = htmlspecialchars(substr(array_key_first($grp['msgs']), 0, 90));
+			$pct    = (int)round($cnt / $maxGruppen * 100);
+			$gruppenRows .= '<tr>'
+				. '<td style="color:#f88;font-weight:bold;width:45px;text-align:right">' . $cnt . '×</td>'
+				. '<td style="color:#666;width:80px;font-size:11px">' . $varCount . ' Varianten</td>'
+				. '<td><div style="background:#f66;opacity:0.5;height:3px;width:' . $pct . '%;border-radius:2px;margin-bottom:3px"></div>'
+				. '<span style="font-size:11px;color:#bbb">' . $topMsg . '</span></td>'
+				. '</tr>';
+		}
+
+		// ── Tabelle: Sender ───────────────────────────────────────
+		$senderRows = '';
+		foreach ($topSender as $snd => $cnt) {
+			$pct  = (int)round($cnt / $maxSender * 100);
+			$sndH = htmlspecialchars($snd);
+			$breakdown = '';
+			$sTyps = $senderTypCount[$snd] ?? [];
+			arsort($sTyps);
+			foreach (array_slice($sTyps, 0, 4, true) as $t => $tc) {
+				$fc3 = $typFarben[strtoupper($t)] ?? '#888';
+				$breakdown .= '<span style="color:' . $fc3 . ';font-size:10px;margin-right:5px">' . $t . ':&nbsp;' . $tc . '</span>';
+			}
+			$errCnt = ($senderTypCount[$snd]['ERROR'] ?? 0);
+			$warnCnt = ($senderTypCount[$snd]['WARNING'] ?? 0);
+			$errStyle = ($errCnt > 0) ? 'color:#f66' : 'color:#333';
+			$senderRows .= '<tr>'
+				. '<td style="color:#ffd080;width:130px">' . $sndH . '</td>'
+				. '<td style="color:#aaa;width:45px;text-align:right">' . $cnt . '</td>'
+				. '<td style="' . $errStyle . ';width:40px;text-align:right;font-size:11px">' . ($errCnt > 0 ? '⚠ '.$errCnt : '') . '</td>'
+				. '<td style="padding:0 6px;width:150px"><div style="background:#3a7a5a;height:4px;width:' . $pct . '%;border-radius:2px"></div></td>'
+				. '<td style="font-size:11px">' . $breakdown . '</td>'
+				. '</tr>';
+		}
+
+		// ── Tabelle: Typ-Verteilung ───────────────────────────────
+		$typRows = '';
+		arsort($typCount);
+		$maxTyp = $typCount ? max($typCount) : 1;
+		foreach ($typCount as $typ => $cnt) {
+			$pct    = (int)round($cnt / $maxTyp * 100);
+			$pctGes = $gesamt > 0 ? round($cnt / $gesamt * 100, 1) : 0;
+			$fc3    = $typFarben[strtoupper($typ)] ?? '#aaa';
+			$typRows .= '<tr>'
+				. '<td style="color:' . $fc3 . ';font-weight:bold;width:90px">' . htmlspecialchars($typ) . '</td>'
+				. '<td style="color:#aaa;width:55px;text-align:right">' . number_format($cnt) . '</td>'
+				. '<td style="color:#555;width:45px;text-align:right">' . $pctGes . '%</td>'
+				. '<td style="padding-left:6px"><div style="background:' . $fc3 . ';height:4px;width:' . $pct . '%;border-radius:2px"></div></td>'
+				. '</tr>';
+		}
+
+		$dateiname    = htmlspecialchars(basename($logDatei));
+		$ts           = date('d.m.Y H:i:s');
+		$fehlerHeuteH = number_format(array_sum($stundenCountH));
+		$fehlerGesH   = number_format(array_sum($stundenCountG));
+
+		return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">'
+			. '<title>Statistik – ' . $dateiname . '</title>'
+			. '<style>'
+			. '*{box-sizing:border-box;margin:0;padding:0}'
+			. 'body{font-family:Arial,sans-serif;font-size:12px;background:#1a1a1a;color:#ccc;padding:10px}'
+			. 'h3{font-size:11px;color:#666;margin:0 0 5px;text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;gap:6px}'
+			. '.card{background:#1e1e1e;border:1px solid #2a2a2a;border-radius:6px;padding:8px 10px;margin-bottom:8px}'
+			. 'table{width:100%;border-collapse:collapse}'
+			. 'tr:nth-child(even) td{background:rgba(255,255,255,.02)}'
+			. 'tr:hover td{background:rgba(255,255,255,.04)}'
+			. 'td{padding:3px 3px;vertical-align:middle;font-size:11px}'
+			. '.meta{color:#444;font-size:11px;margin-bottom:8px;display:flex;gap:16px;flex-wrap:wrap}'
+			. '.metaval{color:#aaa}'
+			. '.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}'
+			. '.grid3{display:grid;grid-template-columns:2fr 1fr;gap:8px}'
+			. '.legend{display:flex;gap:10px;font-size:10px;margin-top:4px;flex-wrap:wrap}'
+			. '.ld{width:10px;height:10px;border-radius:2px;display:inline-block;margin-right:3px;vertical-align:middle}'
+			. '#chtip{position:fixed;display:none;background:#1e1e2a;border:1px solid #444;border-radius:6px;padding:8px 12px;pointer-events:none;z-index:9999;max-width:360px;box-shadow:0 4px 16px rgba(0,0,0,.7);font-size:11px;line-height:1.6}'
+			. '#hmoverlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.75);z-index:10000;overflow:auto;padding:30px 20px}'
+			. '#hmoverlay .panel{background:#1e1e1e;border:1px solid #333;border-radius:8px;max-width:820px;margin:0 auto}'
+			. '#hmoverlay .phead{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #2a2a2a;position:sticky;top:0;background:#1e1e1e;border-radius:8px 8px 0 0;z-index:1}'
+			. '#hmoverlay .phead h2{font-size:13px;color:#ffd080;margin:0}'
+			. '#hmoverlay .cls{background:#2a2a2a;color:#aaa;border:1px solid #3a3a3a;border-radius:4px;padding:3px 10px;cursor:pointer;font-size:12px}'
+			. '#hmoverlay .cls:hover{background:#3a3a3a}'
+			. '#hmpanel-body table{width:100%;border-collapse:collapse}'
+			. '#hmpanel-body td{padding:4px 8px;font-size:11px;border-bottom:1px solid #252525;vertical-align:top;word-break:break-word}'
+			. '#hmpanel-body tr:hover td{background:#252525}'
+			. '.typ-e{color:#f66;font-weight:bold}.typ-w{color:#fa0;font-weight:bold}.typ-d{color:#7ecfff}.typ-m{color:#888}.typ-s{color:#88ffcc}.typ-n{color:#d0aaff}.typ-c{color:#ffcc88}'
+			. '@media(max-width:700px){.grid2,.grid3{grid-template-columns:1fr}}'
+			. '</style></head><body>'
+			. '<div id="chtip"></div>'
+			. '<div id="hmoverlay"><div class="panel">'
+			. '<div class="phead"><h2 id="hmpanel-title">Details</h2><button class="cls" onclick="closeOverlay()">✕ Schließen</button></div>'
+			. '<div id="hmpanel-body" style="padding:10px"></div>'
+			. '</div></div>'
+			. '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
+			. '<span style="font-size:14px;color:#ffd080;font-weight:bold">📊 Statistik – ' . $dateiname . '</span>'
+			. '<a href="' . $h . '" style="background:#222;color:#aaa;border:1px solid #333;border-radius:4px;padding:2px 10px;text-decoration:none;font-size:11px">← Zurück</a>'
+			. '</div>'
+			. '<div class="meta">'
+			. '<span>Gesamt: <span class="metaval">' . number_format($gesamt) . '</span> Zeilen</span>'
+			. '<span>Errors/Warnings: <span class="metaval" style="color:#f88">' . number_format($gesamtFehler) . '</span></span>'
+			. '<span>Heute: <span class="metaval" style="color:#f88">' . $fehlerHeuteH . '</span> Fehler</span>'
+			. '<span>Gestern: <span class="metaval" style="color:#888">' . $fehlerGesH . '</span> Fehler</span>'
+			. '<span style="margin-left:auto;color:#333">Stand: ' . $ts . '</span>'
+			. '</div>'
+			// Chart 1
+			. '<div class="card">'
+			. '<h3>⏰ Errors + Warnings nach Uhrzeit <span style="font-weight:normal;text-transform:none;font-size:10px;color:#444">alle Tage aggregiert</span></h3>'
+			. '<svg viewBox="0 0 ' . $svgW . ' ' . $svgH . '" width="100%" style="background:#161616;border-radius:3px">' . $svgBars . '</svg>'
+			. '<div class="legend"><span><span class="ld" style="background:#5a9"></span>Niedrig</span><span><span class="ld" style="background:#fa0"></span>Mittel</span><span><span class="ld" style="background:#f66"></span>Hoch</span><span style="margin-left:8px;color:#444;font-size:10px">Farbe relativ zum Maximum aller Stunden</span></div>'
+			. '</div>'
+			// Chart 2
+			. '<div class="card">'
+			. '<h3>📈 Verlauf letzte 30 Tage <span style="font-weight:normal;text-transform:none;font-size:10px;color:#f88">■ Heute</span> <span style="font-size:10px;color:#444;font-weight:normal;text-transform:none">(log. Skala)</span></h3>'
+			. '<svg viewBox="0 0 ' . $trendW . ' ' . $trendH . '" width="100%" style="background:#161616;border-radius:3px">' . $trendBars . '</svg>'
+			. '</div>'
+			// Charts 3+4
+			. '<div class="grid3">'
+			. '<div class="card"><h3>🔥 Heatmap Wochentag × Uhrzeit</h3>'
+			. '<svg viewBox="0 0 ' . $hmW . ' ' . $hmH . '" width="100%" style="background:#161616;border-radius:3px">' . $hmSvg . '</svg>'
+			. '</div>'
+			. '<div class="card"><h3>📅 Verteilung nach Wochentag</h3>'
+			. '<svg viewBox="0 0 ' . $wtW . ' ' . $wtH . '" width="100%" style="background:#161616;border-radius:3px">' . $wtSvg . '</svg>'
+			. '</div>'
+			. '</div>'
+			// Fehler + Gruppen
+			. '<div class="grid2">'
+			. '<div class="card"><h3>⚠ Häufigste Fehler <span style="font-weight:normal;text-transform:none;font-size:10px;color:#444">Top 25 | mit Erstauftreten</span></h3>'
+			. '<table>' . $fehlerRows . '</table></div>'
+			. '<div>'
+			. '<div class="card"><h3>🗂 Fehler-Gruppen <span style="font-weight:normal;text-transform:none;font-size:10px;color:#444">ähnliche zusammengefasst</span></h3>'
+			. '<table>' . $gruppenRows . '</table></div>'
+			. '<div class="card"><h3>👤 Aktivste Sender</h3>'
+			. '<table>' . $senderRows . '</table></div>'
+			. '<div class="card"><h3>🎯 Typ-Verteilung</h3>'
+			. '<table>' . $typRows . '</table></div>'
+			. '</div>'
+			. '</div>'
+			// SVG Tooltip JS
+			. '<script>'
+			. 'var _t=document.getElementById("chtip");'
+			. 'function showTip(e,html){_t.innerHTML=html;_t.style.display="block";_t.style.left=(e.clientX+14)+"px";_t.style.top=(e.clientY-10)+"px";}'
+			. 'function moveTip(e){_t.style.left=(e.clientX+14)+"px";_t.style.top=(e.clientY-10)+"px";}'
+			. 'function hideTip(){_t.style.display="none";}'
+			. 'document.querySelectorAll(".sh").forEach(function(r){'
+			.   'r.addEventListener("mouseenter",function(e){'
+			.     'var c=parseInt(r.getAttribute("data-c")||"0");'
+			.     'var g=parseInt(r.getAttribute("data-g")||"0");'
+			.     'if(!c&&!g){hideTip();return;}'
+			.     'var tot=parseInt(r.getAttribute("data-tot")||"0");'
+			.     'showTip(e,'
+			.       '"<b style=\\"color:#ffd080\\">"+(r.getAttribute("data-h")||"")+" Uhr</b><br>"'
+			.       '+"Gesamt (alle Tage): <b style=\\"color:#f88\\">"+tot+"</b><br>"'
+			.       '+"Heute: <b style=\\"color:#fa8\\">"+c+"</b> &nbsp; Gestern: <span style=\\"color:#555\\">"+g+"</span>"'
+			.       '+(r.getAttribute("data-m")?"<br><span style=\\"color:#999\\">"+r.getAttribute("data-m")+"</span>":"")'
+			.     ')'
+			.     ';'
+			.   '});'
+			.   'r.addEventListener("mousemove",moveTip);'
+			.   'r.addEventListener("mouseleave",hideTip);'
+			.   'r.addEventListener("click",function(){'
+			.     'var hr=parseInt(r.getAttribute("data-h")||"0");'
+			.     'var c=parseInt(r.getAttribute("data-c")||"0");'
+			.     'var g=parseInt(r.getAttribute("data-g")||"0");'
+			.     'var tot=parseInt(r.getAttribute("data-tot")||"0");'
+			.     'if(tot>0){var url=_apiBase+"?a=StundenDetail&datum=alle&h="+hr;openOverlay(url,r.getAttribute("data-h")+" Uhr (alle Tage)",tot);}'
+			.   '});'
+			. '});'
+			. 'document.querySelectorAll(".th").forEach(function(r){'
+			.   'r.addEventListener("mouseenter",function(e){'
+			.     'showTip(e,'
+			.       '"<b style=\\"color:#ffd080\\">"+r.getAttribute("data-d")+"</b><br>"'
+			.       '+"Einträge: <b style=\\"color:#f88\\">"+r.getAttribute("data-v")+"</b>"'
+			.       '+"<br><span style=\\"color:#555;font-size:10px\\">Klicken für Details</span>"'
+			.     ');'
+			.   '});'
+			.   'r.addEventListener("mousemove",moveTip);'
+			.   'r.addEventListener("mouseleave",hideTip);'
+			.   'r.addEventListener("click",function(){'
+			.     'var url=_apiBase+"?a=TrendDetail&datum="+encodeURIComponent(r.getAttribute("data-datum")||r.getAttribute("data-d"));'
+			.     'openOverlay(url,r.getAttribute("data-d"),r.getAttribute("data-v"));'
+			.   '});'
+			. '});'
+			. 'var _apiBase="' . $h . '";'
+			. 'function openOverlay(url,label,cnt){'
+			.   'hideTip();'
+			.   'var ov=document.getElementById("hmoverlay");'
+			.   'var title=document.getElementById("hmpanel-title");'
+			.   'var body=document.getElementById("hmpanel-body");'
+			.   'title.textContent=label+" ("+cnt+" Einträge)";'
+			.   'body.innerHTML="<div style=\\"padding:20px;color:#666\\">Lade…</div>";'
+			.   'ov.style.display="block";'
+			.   'fetch(url)'
+			.     '.then(function(r){return r.json();})'
+			.     '.then(function(d){'
+			.       'if(d.error){body.innerHTML="<p style=\\"color:#f66;padding:20px\\">Fehler: "+d.error+"</p>";return;}'
+			.       'var typCls={ERROR:"typ-e",WARNING:"typ-w",DEBUG:"typ-d",MESSAGE:"typ-m",SUCCESS:"typ-s",NOTIFY:"typ-n",CUSTOM:"typ-c"};'
+			.       'var html="<div style=\\"padding:8px 14px 4px;color:#555;font-size:11px\\">Letzte bis zu 300 Einträge – "+d.label+"</div>";'
+			.       'html+="<table><thead><tr style=\\"background:#252525\\">";'
+			.       'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666;width:140px\\">Zeit</th>";'
+			.       'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666;width:75px\\">Typ</th>";'
+			.       'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666;width:130px\\">Sender</th>";'
+			.       'html+="<th style=\\"padding:4px 8px;text-align:left;font-size:11px;color:#666\\">Meldung</th>";'
+			.       'html+="</tr></thead><tbody>";'
+			.       'if(d.eintraege.length===0){html+="<tr><td colspan=4 style=\\"padding:20px;color:#555;text-align:center\\">Keine Einträge gefunden</td></tr>";}'
+			.       'd.eintraege.forEach(function(e){'
+			.         'var tc=typCls[e.typ.toUpperCase()]||"typ-m";'
+			.         'html+="<tr>";'
+			.         'html+="<td style=\\"color:#555;white-space:nowrap\\">"+(e.zeit||"")+"</td>";'
+			.         'html+="<td class=\\""+tc+"\\">"+(e.typ||"")+"</td>";'
+			.         'html+="<td style=\\"color:#ffd080\\">"+(e.sender||"")+"</td>";'
+			.         'html+="<td style=\\"color:#ccc\\">"+(e.msg||"")+"</td>";'
+			.         'html+="</tr>";'
+			.       '});'
+			.       'html+="</tbody></table>";'
+			.       'body.innerHTML=html;'
+			.     '})'
+			.     '.catch(function(){body.innerHTML="<p style=\\"color:#f66;padding:20px\\">Fehler beim Laden</p>";});'
+			. '}'
+			. 'function closeOverlay(){document.getElementById("hmoverlay").style.display="none";}'
+			. 'document.getElementById("hmoverlay").addEventListener("click",function(e){if(e.target===this)closeOverlay();});'
+			. 'document.querySelectorAll(".hm").forEach(function(r){'
+			.   'r.addEventListener("mouseenter",function(e){'
+			.     'showTip(e,'
+			.       '"<b style=\\"color:#ffd080\\">"+r.getAttribute("data-d")+"</b><br>"'
+			.       '+"Einträge: <b style=\\"color:#f88\\">"+r.getAttribute("data-v")+"</b>"'
+			.       '+"<br><span style=\\"color:#555;font-size:10px\\">Klicken für Details</span>"'
+			.     ');'
+			.   '});'
+			.   'r.addEventListener("mousemove",moveTip);'
+			.   'r.addEventListener("mouseleave",hideTip);'
+			.   'r.addEventListener("click",function(){'
+			.     'var url=_apiBase+"?a=HeatmapDetail&dow="+r.getAttribute("data-dow")+"&h="+r.getAttribute("data-hr");'
+			.     'openOverlay(url,r.getAttribute("data-d"),r.getAttribute("data-v"));'
+			.   '});'
+			. '});'
+			. 'document.querySelectorAll(".wt").forEach(function(r){'
+			.   'r.addEventListener("mouseenter",function(e){'
+			.     'showTip(e,'
+			.       '"<b style=\\"color:#ffd080\\">"+r.getAttribute("data-d")+"</b><br>"'
+			.       '+"Einträge: <b style=\\"color:#f88\\">"+r.getAttribute("data-v")+"</b>"'
+			.       '+"<br><span style=\\"color:#555;font-size:10px\\">Klicken für Details</span>"'
+			.     ');'
+			.   '});'
+			.   'r.addEventListener("mousemove",moveTip);'
+			.   'r.addEventListener("mouseleave",hideTip);'
+			.   'r.addEventListener("click",function(){'
+			.     'var url=_apiBase+"?a=WochentagDetail&dow="+r.getAttribute("data-dow");'
+			.     'openOverlay(url,r.getAttribute("data-d"),r.getAttribute("data-v"));'
+			.   '});'
+			. '});'
+			. '</script>'
+			. '</body></html>';
+	}
+
+
+
+	public function HeatmapDetail(int $dow, int $stunde): string
+	{
+		$tage    = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+		$logDatei = $this->leseAktuelleLogDatei();
+		if ($dow < 0 || $dow > 6 || $stunde < 0 || $stunde > 23 || !is_file($logDatei)) {
+			return json_encode(['error' => 'Ungültige Parameter'], JSON_UNESCAPED_UNICODE);
+		}
+
+		$zielWt    = $dow + 1; // date('N'): 1=Mo..7=So
+		$ergebnis  = [];
+		$handle    = @fopen($logDatei, 'rb');
+		if ($handle) {
+			while (($zeile = fgets($handle)) !== false) {
+				$p = $this->parseLogZeile($zeile);
+				if ($p === null) continue;
+				$zstamp = (string)($p['zeitstempel'] ?? '');
+
+				// Datum extrahieren
+				if (!preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) continue;
+				$datum = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
+
+				// Wochentag und Stunde prüfen
+				if ((int)date('N', strtotime($datum)) !== $zielWt) continue;
+				if (!preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm)) continue;
+				if ((int)$tm[1] !== $stunde) continue;
+
+				$ergebnis[] = [
+					'zeit'   => $zstamp,
+					'typ'    => (string)($p['typ']     ?? ''),
+					'sender' => (string)($p['sender']  ?? ''),
+					'msg'    => (string)($p['meldung'] ?? ''),
+				];
+			}
+			fclose($handle);
+		}
+
+		// Letzte 200 Treffer, neueste zuerst
+		$ergebnis = array_slice(array_reverse($ergebnis), 0, 200);
+
+		return json_encode([
+			'label'   => $tage[$dow] . ', ' . sprintf('%02d:00–%02d:59', $stunde, $stunde),
+			'count'   => count($ergebnis),
+			'eintraege' => $ergebnis,
+		], JSON_UNESCAPED_UNICODE);
+	}
+
+	public function TrendDetail(string $datum): string
+	{
+		$logDatei = $this->leseAktuelleLogDatei();
+		if (!$datum || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $datum) || !is_file($logDatei)) {
+			return json_encode(['error' => 'Ungültige Parameter'], JSON_UNESCAPED_UNICODE);
+		}
+		$zielDatum = $datum; // YYYY-MM-DD
+		$ergebnis  = [];
+		$handle    = @fopen($logDatei, 'rb');
+		if ($handle) {
+			while (($zeile = fgets($handle)) !== false) {
+				$p = $this->parseLogZeile($zeile);
+				if ($p === null) continue;
+				$zstamp = (string)($p['zeitstempel'] ?? '');
+				if (!preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) continue;
+				$d = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
+				if ($d !== $zielDatum) continue;
+				$ergebnis[] = [
+					'zeit'   => $zstamp,
+					'typ'    => (string)($p['typ']    ?? ''),
+					'sender' => (string)($p['sender'] ?? ''),
+					'msg'    => (string)($p['meldung'] ?? ''),
+				];
+			}
+			fclose($handle);
+		}
+		$ergebnis = array_slice(array_reverse($ergebnis), 0, 300);
+		$label = date('d.m.Y', strtotime($zielDatum)) . ' (' . $this->wochentagName($zielDatum) . ')';
+		return json_encode(['label' => $label, 'count' => count($ergebnis), 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
+	}
+
+	public function StundenDetail(string $datum, int $stunde): string
+	{
+		$logDatei = $this->leseAktuelleLogDatei();
+		if ($stunde < 0 || $stunde > 23 || !is_file($logDatei)) {
+			return json_encode(['error' => 'Ungültige Parameter'], JSON_UNESCAPED_UNICODE);
+		}
+		$heute    = date('Y-m-d');
+		$gestern  = date('Y-m-d', strtotime('-1 day'));
+		$alle     = ($datum === 'alle');
+		$zielDatum = ($datum === 'gestern') ? $gestern : ($alle ? null : $heute);
+		$ergebnis  = [];
+		$handle    = @fopen($logDatei, 'rb');
+		if ($handle) {
+			while (($zeile = fgets($handle)) !== false) {
+				$p = $this->parseLogZeile($zeile);
+				if ($p === null) continue;
+				$zstamp = (string)($p['zeitstempel'] ?? '');
+				if (!preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) continue;
+				$d = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
+				if (!$alle && $d !== $zielDatum) continue;
+				if (!preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm)) continue;
+				if ((int)$tm[1] !== $stunde) continue;
+				$ergebnis[] = [
+					'zeit'   => $zstamp,
+					'typ'    => (string)($p['typ']    ?? ''),
+					'sender' => (string)($p['sender'] ?? ''),
+					'msg'    => (string)($p['meldung'] ?? ''),
+				];
+			}
+			fclose($handle);
+		}
+		$ergebnis = array_slice(array_reverse($ergebnis), 0, 500);
+		if ($alle) {
+			$label = sprintf('%02d:00–%02d:59 Uhr (alle Tage)', $stunde, $stunde);
+		} else {
+			$tagLabel = ($datum === 'gestern') ? 'Gestern' : 'Heute';
+			$label = $tagLabel . ', ' . sprintf('%02d:00–%02d:59', $stunde, $stunde);
+		}
+		return json_encode(['label' => $label, 'count' => count($ergebnis), 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
+	}
+
+	public function WochentagDetail(int $dow): string
+	{
+		$tage     = ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag','Sonntag'];
+		$logDatei = $this->leseAktuelleLogDatei();
+		if ($dow < 0 || $dow > 6 || !is_file($logDatei)) {
+			return json_encode(['error' => 'Ungültige Parameter'], JSON_UNESCAPED_UNICODE);
+		}
+		$zielWt   = $dow + 1;
+		$ergebnis = [];
+		$handle   = @fopen($logDatei, 'rb');
+		if ($handle) {
+			while (($zeile = fgets($handle)) !== false) {
+				$p = $this->parseLogZeile($zeile);
+				if ($p === null) continue;
+				$zstamp = (string)($p['zeitstempel'] ?? '');
+				if (!preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) continue;
+				$d = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
+				if ((int)date('N', strtotime($d)) !== $zielWt) continue;
+				$ergebnis[] = [
+					'zeit'   => $zstamp,
+					'typ'    => (string)($p['typ']    ?? ''),
+					'sender' => (string)($p['sender'] ?? ''),
+					'msg'    => (string)($p['meldung'] ?? ''),
+				];
+			}
+			fclose($handle);
+		}
+		$ergebnis = array_slice(array_reverse($ergebnis), 0, 300);
+		return json_encode(['label' => $tage[$dow], 'count' => count($ergebnis), 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
+	}
+
+	private function wochentagName(string $datum): string
+	{
+		$tage = ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag','Sonntag'];
+		return $tage[(int)date('N', strtotime($datum)) - 1] ?? '';
+	}
+
+
 	public function ObjektIdAufloesen(string $oid): string
 	{
 		$id = (int) $oid;
@@ -729,6 +1392,7 @@ mark{background:#7a5000;color:#ffd080;border-radius:2px;padding:0 2px}
 			.   '<a class="btn"' . $disA . ' href="' . $h . '?a=SeiteVor" title="Ältere">&#8250;</a>'
 			.   (($letzteSeite > 0 || $hatWeitere) ? '<a class="btn"' . ($letzteSeite > 0 && $seite >= $letzteSeite ? ' disabled' : '') . ' href="' . $h . '?a=LetzteSeite" title="Älteste">&#8677;</a>' : '')
 			.   '<a class="btn" href="' . $h . '?a=Aktualisieren" title="Aktualisieren (R)">&#8635;</a>'
+			.   '<a class="btn" href="' . $h . '?a=Statistik" title="Statistik">&#128202;</a>'
 			. '</div>'
 			. '<form id="filter-form" method="GET" action="' . $h . '" onsubmit="return doFilter(event);"><input type="hidden" name="a" value="FilterAnwenden">'
 			. '<div class="bar2">'

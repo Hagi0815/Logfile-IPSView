@@ -7,6 +7,47 @@ if (!$instId || !IPS_InstanceExists($instId)) { echo "Instanz nicht gefunden."; 
 $a = isset($_GET['a']) ? (string)$_GET['a'] : '';
 $v = isset($_GET['v']) ? (string)$_GET['v'] : '';
 
+// Statistik-Seite
+if ($a === 'Statistik') {
+    header('Content-Type: text/html; charset=utf-8');
+    echo LOGANALYZER_ErstelleStatistik($instId);
+    return;
+}
+
+// Heatmap-Detail: ?a=HeatmapDetail&dow=1&h=10
+if ($a === 'HeatmapDetail') {
+    header('Content-Type: application/json; charset=utf-8');
+    $dow = isset($_GET['dow']) ? (int)$_GET['dow'] : -1;
+    $h2  = isset($_GET['h'])   ? (int)$_GET['h']   : -1;
+    echo LOGANALYZER_HeatmapDetail($instId, $dow, $h2);
+    return;
+}
+
+// Trend-Detail: ?a=TrendDetail&datum=2026-04-14
+if ($a === 'TrendDetail') {
+    header('Content-Type: application/json; charset=utf-8');
+    $datum = isset($_GET['datum']) ? preg_replace('/[^0-9-]/', '', $_GET['datum']) : '';
+    echo LOGANALYZER_TrendDetail($instId, $datum);
+    return;
+}
+
+// Stunden-Detail: ?a=StundenDetail&datum=heute&h=10
+if ($a === 'StundenDetail') {
+    header('Content-Type: application/json; charset=utf-8');
+    $datum = isset($_GET['datum']) ? $_GET['datum'] : 'heute';
+    $h2    = isset($_GET['h'])     ? (int)$_GET['h'] : -1;
+    echo LOGANALYZER_StundenDetail($instId, $datum, $h2);
+    return;
+}
+
+// Wochentag-Detail: ?a=WochentagDetail&dow=1
+if ($a === 'WochentagDetail') {
+    header('Content-Type: application/json; charset=utf-8');
+    $dow = isset($_GET['dow']) ? (int)$_GET['dow'] : -1;
+    echo LOGANALYZER_WochentagDetail($instId, $dow);
+    return;
+}
+
 // ObjektID auflösen (JSON-API)
 if ($a === 'ObjektIdAufloesen') {
     header('Content-Type: application/json; charset=utf-8');
