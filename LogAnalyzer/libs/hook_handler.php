@@ -17,34 +17,50 @@ if ($a === 'Statistik') {
 // Heatmap-Detail: ?a=HeatmapDetail&dow=1&h=10
 if ($a === 'HeatmapDetail') {
     header('Content-Type: application/json; charset=utf-8');
-    $dow = isset($_GET['dow']) ? (int)$_GET['dow'] : -1;
-    $h2  = isset($_GET['h'])   ? (int)$_GET['h']   : -1;
-    echo LOGANALYZER_HeatmapDetail($instId, $dow, $h2);
+    try {
+        $dow = isset($_GET['dow']) ? (int)$_GET['dow'] : -1;
+        $h2  = isset($_GET['h'])   ? (int)$_GET['h']   : -1;
+        echo LOGANALYZER_HeatmapDetail($instId, $dow, $h2);
+    } catch (Throwable $e) {
+        echo json_encode(['error' => $e->getMessage()]);
+    }
     return;
 }
 
 // Trend-Detail: ?a=TrendDetail&datum=2026-04-14
 if ($a === 'TrendDetail') {
     header('Content-Type: application/json; charset=utf-8');
-    $datum = isset($_GET['datum']) ? preg_replace('/[^0-9-]/', '', $_GET['datum']) : '';
-    echo LOGANALYZER_TrendDetail($instId, $datum);
+    try {
+        $datum = isset($_GET['datum']) ? preg_replace('/[^0-9-]/', '', $_GET['datum']) : '';
+        echo LOGANALYZER_TrendDetail($instId, $datum);
+    } catch (Throwable $e) {
+        echo json_encode(['error' => $e->getMessage()]);
+    }
     return;
 }
 
 // Stunden-Detail: ?a=StundenDetail&datum=heute&h=10
 if ($a === 'StundenDetail') {
     header('Content-Type: application/json; charset=utf-8');
-    $datum = isset($_GET['datum']) ? $_GET['datum'] : 'heute';
-    $h2    = isset($_GET['h'])     ? (int)$_GET['h'] : -1;
-    echo LOGANALYZER_StundenDetail($instId, $datum, $h2);
+    try {
+        $datum = isset($_GET['datum']) ? $_GET['datum'] : 'heute';
+        $h2    = isset($_GET['h'])     ? (int)$_GET['h'] : -1;
+        echo LOGANALYZER_StundenDetail($instId, $datum, $h2);
+    } catch (Throwable $e) {
+        echo json_encode(['error' => $e->getMessage()]);
+    }
     return;
 }
 
 // Wochentag-Detail: ?a=WochentagDetail&dow=1
 if ($a === 'WochentagDetail') {
     header('Content-Type: application/json; charset=utf-8');
-    $dow = isset($_GET['dow']) ? (int)$_GET['dow'] : -1;
-    echo LOGANALYZER_WochentagDetail($instId, $dow);
+    try {
+        $dow = isset($_GET['dow']) ? (int)$_GET['dow'] : -1;
+        echo LOGANALYZER_WochentagDetail($instId, $dow);
+    } catch (Throwable $e) {
+        echo json_encode(['error' => $e->getMessage()]);
+    }
     return;
 }
 
