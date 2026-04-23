@@ -14,53 +14,32 @@ if ($a === 'Statistik') {
     return;
 }
 
-// Heatmap-Detail: ?a=HeatmapDetail&dow=1&h=10
-if ($a === 'HeatmapDetail') {
-    header('Content-Type: application/json; charset=utf-8');
+// JSON-Detail-Endpunkte: Output-Buffer nutzen damit PHP-Warnings das JSON nicht verschmutzen
+$jsonAktionen = ['HeatmapDetail', 'TrendDetail', 'StundenDetail', 'WochentagDetail'];
+if (in_array($a, $jsonAktionen)) {
+    ob_start();
     try {
-        $dow = isset($_GET['dow']) ? (int)$_GET['dow'] : -1;
-        $h2  = isset($_GET['h'])   ? (int)$_GET['h']   : -1;
-        echo LOGANALYZER_HeatmapDetail($instId, $dow, $h2);
+        if ($a === 'HeatmapDetail') {
+            $dow = isset($_GET['dow']) ? (int)$_GET['dow'] : -1;
+            $h2  = isset($_GET['h'])   ? (int)$_GET['h']   : -1;
+            $result = LOGANALYZER_HeatmapDetail($instId, $dow, $h2);
+        } elseif ($a === 'TrendDetail') {
+            $datum = isset($_GET['datum']) ? preg_replace('/[^0-9-]/', '', $_GET['datum']) : '';
+            $result = LOGANALYZER_TrendDetail($instId, $datum);
+        } elseif ($a === 'StundenDetail') {
+            $datum = isset($_GET['datum']) ? $_GET['datum'] : 'heute';
+            $h2    = isset($_GET['h'])     ? (int)$_GET['h'] : -1;
+            $result = LOGANALYZER_StundenDetail($instId, $datum, $h2);
+        } elseif ($a === 'WochentagDetail') {
+            $dow = isset($_GET['dow']) ? (int)$_GET['dow'] : -1;
+            $result = LOGANALYZER_WochentagDetail($instId, $dow);
+        }
     } catch (Throwable $e) {
-        echo json_encode(['error' => $e->getMessage()]);
+        $result = json_encode(['error' => $e->getMessage()]);
     }
-    return;
-}
-
-// Trend-Detail: ?a=TrendDetail&datum=2026-04-14
-if ($a === 'TrendDetail') {
+    ob_end_clean(); // alle PHP-Warnings verwerfen
     header('Content-Type: application/json; charset=utf-8');
-    try {
-        $datum = isset($_GET['datum']) ? preg_replace('/[^0-9-]/', '', $_GET['datum']) : '';
-        echo LOGANALYZER_TrendDetail($instId, $datum);
-    } catch (Throwable $e) {
-        echo json_encode(['error' => $e->getMessage()]);
-    }
-    return;
-}
-
-// Stunden-Detail: ?a=StundenDetail&datum=heute&h=10
-if ($a === 'StundenDetail') {
-    header('Content-Type: application/json; charset=utf-8');
-    try {
-        $datum = isset($_GET['datum']) ? $_GET['datum'] : 'heute';
-        $h2    = isset($_GET['h'])     ? (int)$_GET['h'] : -1;
-        echo LOGANALYZER_StundenDetail($instId, $datum, $h2);
-    } catch (Throwable $e) {
-        echo json_encode(['error' => $e->getMessage()]);
-    }
-    return;
-}
-
-// Wochentag-Detail: ?a=WochentagDetail&dow=1
-if ($a === 'WochentagDetail') {
-    header('Content-Type: application/json; charset=utf-8');
-    try {
-        $dow = isset($_GET['dow']) ? (int)$_GET['dow'] : -1;
-        echo LOGANALYZER_WochentagDetail($instId, $dow);
-    } catch (Throwable $e) {
-        echo json_encode(['error' => $e->getMessage()]);
-    }
+    echo $result ?? json_encode(['error' => 'Unbekannter Fehler']);
     return;
 }
 
