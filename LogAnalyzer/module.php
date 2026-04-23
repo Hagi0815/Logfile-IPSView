@@ -816,7 +816,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				$zstamp = (string)($p['zeitstempel'] ?? '');
 				if (!preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) continue;
 				$datum = $dm[3].'-'.$dm[2].'-'.$dm[1];
-				if ((int)date('N', strtotime($datum)) !== $zielWt) continue;
+						if (!$datum || (int)date('N', strtotime($datum)) !== $zielWt) continue;
 				if (!preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm)) continue;
 				if ((int)$tm[1] !== $stunde) continue;
 				$ergebnis[] = ['zeit'=>$zstamp,'typ'=>(string)($p['typ']??''),'sender'=>(string)($p['sender']??''),'msg'=>(string)($p['meldung']??'')];
@@ -853,7 +853,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			fclose($h);
 		}
 		$ergebnis = array_slice(array_reverse($ergebnis), 0, 300);
-		$label = date('d.m.Y', strtotime($zielDatum)) . ' (' . $this->wochentagName($zielDatum) . ')';
+		$label = date('d.m.Y', strtotime($datum)) . ' (' . $this->wochentagName($datum) . ')';
 		return json_encode(['label' => $label, 'count' => count($ergebnis), 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
 	}
 
@@ -961,8 +961,11 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 
 	private function wochentagName(string $datum): string
 	{
+		if (!$datum) return '';
 		$tage = ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag','Sonntag'];
-		return $tage[(int)date('N', strtotime($datum)) - 1] ?? '';
+		$ts = strtotime($datum);
+		if (!$ts) return '';
+		return $tage[(int)date('N', $ts) - 1] ?? '';
 	}
 
 
