@@ -267,11 +267,16 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 
 	public function ErstelleStatistik(): string
 	{
-		$logDatei = $this->leseAktuelleLogDatei();
 		$h = '/hook/LogAnalyzerIPSView_' . $this->InstanceID;
-		if (!is_file($logDatei)) {
-			return '<html><body style="background:#1a1a1a;color:#f88;padding:20px">Logdatei nicht gefunden.</body></html>';
+		// Alle Logfiles im Verzeichnis einlesen
+		$logDir = rtrim(IPS_GetLogDir(), DIRECTORY_SEPARATOR);
+		$alleLogfiles = glob($logDir . DIRECTORY_SEPARATOR . 'logfile*.log') ?: [];
+		usort($alleLogfiles, fn($a,$b) => filemtime($a) <=> filemtime($b)); // älteste zuerst
+		if (empty($alleLogfiles)) {
+			return '<html><body style="background:#1a1a1a;color:#f88;padding:20px">Keine Logdateien gefunden.</body></html>';
 		}
+		$logDatei = $this->leseAktuelleLogDatei(); // für Anzeigename
+		$anzahlDateien = count($alleLogfiles);
 
 		// ── Daten sammeln ─────────────────────────────────────────
 		$fehlerCount    = [];
@@ -293,55 +298,58 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		$vor30   = date('Y-m-d', strtotime('-30 days'));
 		$tage    = ['Mo','Di','Mi','Do','Fr','Sa','So'];
 
-		$handle = @fopen($logDatei, 'rb');
-		if ($handle) {
+		foreach ($alleLogfiles as $logFilePfad) {
+			$handle = @fopen($logFilePfad, 'rb');
+			if (!$handle) continue;
 			while (($zeile = fgets($handle)) !== false) {
-				$p = $this->parseLogZeile($zeile);
-				if ($p === null) continue;
-				$gesamt++;
-				$typ    = strtoupper((string)($p['typ'] ?? ''));
-				$sender = (string)($p['sender'] ?? '');
-				$msg    = trim((string)($p['meldung'] ?? ''));
-				$zstamp = (string)($p['zeitstempel'] ?? '');
-
-				$typCount[$typ] = ($typCount[$typ] ?? 0) + 1;
-				$senderCount[$sender] = ($senderCount[$sender] ?? 0) + 1;
-				$senderTypCount[$sender][$typ] = ($senderTypCount[$sender][$typ] ?? 0) + 1;
-
-				// Datum: DD.MM.YYYY -> YYYY-MM-DD
-				$datum = '';
-				if (preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) {
-					$datum = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
-				}
-
-				// Uhrzeit
-				preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm);
-				$stunde = isset($tm[1]) ? (int)$tm[1] : -1;
-
-				if ($datum) {
-					$dow = ((int)date('N', strtotime($datum)) - 1);
-					$wochentagCount[$dow]++;
-					if ($stunde >= 0) {
-						$heatmap[$dow][$stunde] = ($heatmap[$dow][$stunde] ?? 0) + 1;
+				while (($zeile = fgets($handle)) !== false) {
+					$p = $this->parseLogZeile($zeile);
+					if ($p === null) continue;
+					$gesamt++;
+					$typ    = strtoupper((string)($p['typ'] ?? ''));
+					$sender = (string)($p['sender'] ?? '');
+					$msg    = trim((string)($p['meldung'] ?? ''));
+					$zstamp = (string)($p['zeitstempel'] ?? '');
+	
+					$typCount[$typ] = ($typCount[$typ] ?? 0) + 1;
+					$senderCount[$sender] = ($senderCount[$sender] ?? 0) + 1;
+					$senderTypCount[$sender][$typ] = ($senderTypCount[$sender][$typ] ?? 0) + 1;
+	
+					// Datum: DD.MM.YYYY -> YYYY-MM-DD
+					$datum = '';
+					if (preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) {
+						$datum = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
 					}
-					$tageCount[$datum] = ($tageCount[$datum] ?? 0) + 1;
-				}
-
-				if (in_array($typ, ['ERROR','WARNING'], true)) {
-					$fehlerCount[$msg] = ($fehlerCount[$msg] ?? 0) + 1;
-					if (!isset($fehlerErstmals[$msg])) $fehlerErstmals[$msg] = $zstamp;
-					if ($stunde >= 0) {
-						$stundenCount[$stunde]++;  // alle Tage
-						$stundenMsgs[$stunde][$msg] = ($stundenMsgs[$stunde][$msg] ?? 0) + 1;
-						if ($datum === $heute) $stundenCountH[$stunde]++;
-						if ($datum === $gestern) $stundenCountG[$stunde]++;
+	
+					// Uhrzeit
+					preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm);
+					$stunde = isset($tm[1]) ? (int)$tm[1] : -1;
+	
+					if ($datum) {
+						$dow = ((int)date('N', strtotime($datum)) - 1);
+						$wochentagCount[$dow]++;
+						if ($stunde >= 0) {
+							$heatmap[$dow][$stunde] = ($heatmap[$dow][$stunde] ?? 0) + 1;
+						}
+						$tageCount[$datum] = ($tageCount[$datum] ?? 0) + 1;
 					}
-					$grpKey = preg_replace('/[0-9]+/', 'N', substr($msg, 0, 50));
-					$fehlerGruppen[$grpKey]['count'] = ($fehlerGruppen[$grpKey]['count'] ?? 0) + 1;
-					$fehlerGruppen[$grpKey]['msgs'][$msg] = ($fehlerGruppen[$grpKey]['msgs'][$msg] ?? 0) + 1;
-				}
+	
+					if (in_array($typ, ['ERROR','WARNING'], true)) {
+						$fehlerCount[$msg] = ($fehlerCount[$msg] ?? 0) + 1;
+						if (!isset($fehlerErstmals[$msg])) $fehlerErstmals[$msg] = $zstamp;
+						if ($stunde >= 0) {
+							$stundenCount[$stunde]++;  // alle Tage
+							$stundenMsgs[$stunde][$msg] = ($stundenMsgs[$stunde][$msg] ?? 0) + 1;
+							if ($datum === $heute) $stundenCountH[$stunde]++;
+							if ($datum === $gestern) $stundenCountG[$stunde]++;
+						}
+						$grpKey = preg_replace('/[0-9]+/', 'N', substr($msg, 0, 50));
+						$fehlerGruppen[$grpKey]['count'] = ($fehlerGruppen[$grpKey]['count'] ?? 0) + 1;
+						$fehlerGruppen[$grpKey]['msgs'][$msg] = ($fehlerGruppen[$grpKey]['msgs'][$msg] ?? 0) + 1;
+					}
 			}
 			fclose($handle);
+		}
 		}
 
 		arsort($fehlerCount);
@@ -418,7 +426,9 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			$tageKeys[] = date('Y-m-d', strtotime($letzTag . " -{$i} days"));
 		}
 		$trendBars = '';
-		$trendBarW = max(1, (int)(($trendW - 35) / count($tageKeys)));
+		$trendBarW = max(2, min(40, (int)(($trendW - 35) / count($tageKeys))));
+		// SVG-Breite an tatsächliche Daten anpassen
+		$trendWSvg = 35 + count($tageKeys) * $trendBarW;
 		$maxTagLog = $tageCount ? log(max($tageCount) + 1, 10) : 1;
 		if ($maxTagLog < 0.01) $maxTagLog = 1;
 		// Y-Achse (log)
@@ -426,7 +436,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		foreach ([1, 10, 100, 1000, 10000] as $yl) {
 			if ($yl > $maxTagVal * 1.2) break;
 			$yy = $trendH - 20 - (int)round(log($yl+1,10) / $maxTagLog * $tChartH);
-			$trendBars .= '<line x1="33" y1="' . $yy . '" x2="' . $trendW . '" y2="' . $yy . '" stroke="#2a2a2a" stroke-width="1"/>';
+			$trendBars .= '<line x1="33" y1="' . $yy . '" x2="' . $trendWSvg . '" y2="' . $yy . '" stroke="#2a2a2a" stroke-width="1"/>';
 			$trendBars .= '<text x="31" y="' . ($yy+3) . '" font-size="6" fill="#444" text-anchor="end">' . $yl . '</text>';
 		}
 		foreach ($tageKeys as $idx => $tag) {
@@ -436,8 +446,13 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			$fc = ($tag === $heute) ? '#f88' : ($tag === $gestern ? '#fa8' : '#4a6a8a');
 			$tagLabel = date('d.m.Y', strtotime($tag));
 			$tagWt = $tage[(int)date('N', strtotime($tag)) - 1];
-			if ($bh > 0) $trendBars .= '<rect x="' . ($x+1) . '" y="' . ($trendH-$bh-20) . '" width="' . ($trendBarW-2) . '" height="' . $bh . '" fill="' . $fc . '" rx="1"'
-				. ' data-d="' . htmlspecialchars($tagWt . ', ' . $tagLabel, ENT_QUOTES) . '" data-v="' . $v . '" data-datum="' . $tag . '" class="th" cursor="pointer"/>';
+			if ($bh > 0) {
+				$trendBars .= '<rect x="' . ($x+1) . '" y="' . ($trendH-$bh-20) . '" width="' . max(1,$trendBarW-2) . '" height="' . $bh . '" fill="' . $fc . '" rx="1"'
+					. ' data-d="' . htmlspecialchars($tagWt . ', ' . $tagLabel, ENT_QUOTES) . '" data-v="' . $v . '" data-datum="' . $tag . '" class="th" cursor="pointer"/>';
+			} else {
+				// Leerer Tag: dünne graue Linie als Platzhalter
+				$trendBars .= '<line x1="' . ($x + (int)($trendBarW/2)) . '" y1="' . ($trendH-20) . '" x2="' . ($x + (int)($trendBarW/2)) . '" y2="' . ($trendH-22) . '" stroke="#2a2a2a" stroke-width="1"/>';
+			}
 			$labelIntervall = $tageSpanne <= 14 ? 1 : ($tageSpanne <= 60 ? 7 : 30);
 			if ($idx % $labelIntervall === 0 || $tag === $heute) {
 				$lbl = date('d.m', strtotime($tag));
@@ -581,7 +596,9 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				. '</tr>';
 		}
 
-		$dateiname    = htmlspecialchars(basename($logDatei));
+		$dateiname    = ($anzahlDateien === 1)
+			? htmlspecialchars(basename($alleLogfiles[0]))
+			: $anzahlDateien . ' Logdateien';
 		$ts           = date('d.m.Y H:i:s');
 		$fehlerHeuteH = number_format(array_sum($stundenCountH));
 		$fehlerGesH   = number_format(array_sum($stundenCountG));
@@ -623,6 +640,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			. '</div></div>'
 			. '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
 			. '<span style="font-size:14px;color:#ffd080;font-weight:bold">📊 Statistik – ' . $dateiname . '</span>'
+			. ($anzahlDateien > 1 ? '<span style="color:#444;font-size:10px;margin-left:8px">(' . implode(', ', array_map('basename', $alleLogfiles)) . ')</span>' : '')
 			. '<a href="' . $h . '" style="background:#222;color:#aaa;border:1px solid #333;border-radius:4px;padding:2px 10px;text-decoration:none;font-size:11px">← Zurück</a>'
 			. '</div>'
 			. '<div class="meta">'
@@ -642,7 +660,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			. '<div class="card">'
 			. '<h3>📈 Verlauf <span id="trend-title-tage"></span><span style="font-weight:normal;text-transform:none;font-size:10px;color:#f88"> ■ Heute</span> <span style="font-size:10px;color:#444;font-weight:normal;text-transform:none">(log. Skala)</span></h3>'
 			. '<script>document.getElementById("trend-title-tage").textContent="' . $tageSpanne . ' Tage";</script>'
-			. '<svg viewBox="0 0 ' . $trendW . ' ' . $trendH . '" width="100%" style="background:#161616;border-radius:3px">' . $trendBars . '</svg>'
+			. '<svg viewBox="0 0 ' . $trendWSvg . ' ' . $trendH . '" width="100%" style="background:#161616;border-radius:3px">' . $trendBars . '</svg>'
 			. '</div>'
 			// Charts 3+4
 			. '<div class="grid3">'
