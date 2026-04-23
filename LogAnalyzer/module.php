@@ -278,9 +278,10 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		$fehlerErstmals = [];
 		$senderCount    = [];
 		$senderTypCount = [];
-		$stundenCount   = array_fill(0, 24, 0);
-		$stundenCountG  = array_fill(0, 24, 0);
-		$stundenMsgs    = array_fill(0, 24, []);
+		$stundenCount   = array_fill(0, 24, 0);  // alle Tage (für Chart)
+		$stundenCountH  = array_fill(0, 24, 0);  // nur heute (für Meta)
+		$stundenCountG  = array_fill(0, 24, 0);  // nur gestern (für Meta)
+		$stundenMsgs    = array_fill(0, 24, []);  // alle Tage
 		$wochentagCount = array_fill(0, 7, 0);
 		$tageCount      = [];
 		$typCount       = [];
@@ -323,20 +324,17 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 					if ($stunde >= 0) {
 						$heatmap[$dow][$stunde] = ($heatmap[$dow][$stunde] ?? 0) + 1;
 					}
-					if ($datum >= $vor30) {
-						$tageCount[$datum] = ($tageCount[$datum] ?? 0) + 1;
-					}
+					$tageCount[$datum] = ($tageCount[$datum] ?? 0) + 1;
 				}
 
 				if (in_array($typ, ['ERROR','WARNING'], true)) {
 					$fehlerCount[$msg] = ($fehlerCount[$msg] ?? 0) + 1;
 					if (!isset($fehlerErstmals[$msg])) $fehlerErstmals[$msg] = $zstamp;
-					if ($datum === $heute && $stunde >= 0) {
-						$stundenCount[$stunde]++;
+					if ($stunde >= 0) {
+						$stundenCount[$stunde]++;  // alle Tage
 						$stundenMsgs[$stunde][$msg] = ($stundenMsgs[$stunde][$msg] ?? 0) + 1;
-					}
-					if ($datum === $gestern && $stunde >= 0) {
-						$stundenCountG[$stunde]++;
+						if ($datum === $heute) $stundenCountH[$stunde]++;
+						if ($datum === $gestern) $stundenCountG[$stunde]++;
 					}
 					$grpKey = preg_replace('/[0-9]+/', 'N', substr($msg, 0, 50));
 					$fehlerGruppen[$grpKey]['count'] = ($fehlerGruppen[$grpKey]['count'] ?? 0) + 1;
@@ -362,7 +360,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		$gesamtFehler = ($typCount['ERROR'] ?? 0) + ($typCount['WARNING'] ?? 0);
 		$typFarben    = ['ERROR'=>'#f66','WARNING'=>'#fa0','DEBUG'=>'#7ecfff','MESSAGE'=>'#888','CUSTOM'=>'#ffcc88','NOTIFY'=>'#d0aaff','SUCCESS'=>'#88ffcc'];
 
-		// ── Chart 1: Heute vs. Gestern ────────────────────────────
+		// ── Chart 1: Alle Tage aggregiert ────────────────────────────
 		$svgW = 700; $svgH = 150; $barW = (int)($svgW / 24);
 		$chartH = $svgH - 30; // Platz für X-Achse + Y-Achse Labels
 		$svgBars = '';
@@ -389,7 +387,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			// Hover
 			$topMsg = '';
 			if (!empty($stundenMsgs[$i])) { arsort($stundenMsgs[$i]); $topMsg = array_key_first($stundenMsgs[$i]); if (strlen($topMsg)>60) $topMsg=substr($topMsg,0,60).'…'; }
-			$svgBars .= '<rect x="' . $x . '" y="0" width="' . $bw . '" height="' . ($svgH-18) . '" fill="transparent" data-h="' . sprintf('%02d:00',$i) . '" data-c="' . $vH . '" data-g="' . $vG . '" data-m="' . htmlspecialchars($topMsg, ENT_QUOTES) . '" class="sh" cursor="pointer"/>';
+			$svgBars .= '<rect x="' . $x . '" y="0" width="' . $bw . '" height="' . ($svgH-18) . '" fill="transparent" data-h="' . sprintf('%02d:00',$i) . '" data-c="' . $stundenCountH[$i] . '" data-g="' . $vG . '" data-tot="' . $vH . '" data-m="' . htmlspecialchars($topMsg, ENT_QUOTES) . '" class="sh" cursor="pointer"/>';
 			$svgBars .= '<text x="' . $lx . '" y="' . ($svgH-5) . '" font-size="8" fill="#444">' . sprintf('%02d',$i) . '</text>';
 			if ($vH > 0) $svgBars .= '<text x="' . $lx . '" y="' . ($svgH-$bhH-25) . '" font-size="7" fill="#aaa">' . $vH . '</text>';
 		}
@@ -401,13 +399,26 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			. '<text id="stunden-tip-m" font-size="8" fill="#999"></text>'
 			. '</g>';
 
-		// ── Chart 2: 30-Tage Trend (log-Skalierung) ──────────────
+		// ── Chart 2: Trend über alle verfügbaren Tage ───────────
 		$trendW = 700; $trendH = 120;
 		$tChartH = $trendH - 30;
-		$tageKeys = [];
-		for ($i = 29; $i >= 0; $i--) $tageKeys[] = date('Y-m-d', strtotime("-{$i} days"));
+		// Datumsbereich aus vorhandenen Daten ermitteln
+		$alleTageDaten = array_keys($tageCount);
+		if ($alleTageDaten) {
+			$erstTag = min($alleTageDaten);
+			$letzTag = $heute;
+			$tageSpanne = (int)round((strtotime($letzTag) - strtotime($erstTag)) / 86400) + 1;
+		} else {
+			$erstTag    = date('Y-m-d', strtotime('-29 days'));
+			$tageSpanne = 30;
+		}
+		$tageSpanne = max(7, min(365, $tageSpanne)); // 7–365 Tage
+		$tageKeys   = [];
+		for ($i = $tageSpanne - 1; $i >= 0; $i--) {
+			$tageKeys[] = date('Y-m-d', strtotime($letzTag . " -{$i} days"));
+		}
 		$trendBars = '';
-		$trendBarW = (int)(($trendW - 35) / 30);
+		$trendBarW = max(1, (int)(($trendW - 35) / count($tageKeys)));
 		$maxTagLog = $tageCount ? log(max($tageCount) + 1, 10) : 1;
 		if ($maxTagLog < 0.01) $maxTagLog = 1;
 		// Y-Achse (log)
@@ -427,7 +438,8 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			$tagWt = $tage[(int)date('N', strtotime($tag)) - 1];
 			if ($bh > 0) $trendBars .= '<rect x="' . ($x+1) . '" y="' . ($trendH-$bh-20) . '" width="' . ($trendBarW-2) . '" height="' . $bh . '" fill="' . $fc . '" rx="1"'
 				. ' data-d="' . htmlspecialchars($tagWt . ', ' . $tagLabel, ENT_QUOTES) . '" data-v="' . $v . '" data-datum="' . $tag . '" class="th" cursor="pointer"/>';
-			if ($idx % 5 === 0 || $tag === $heute) {
+			$labelIntervall = $tageSpanne <= 14 ? 1 : ($tageSpanne <= 60 ? 7 : 30);
+			if ($idx % $labelIntervall === 0 || $tag === $heute) {
 				$lbl = date('d.m', strtotime($tag));
 				$trendBars .= '<text x="' . ($x+1) . '" y="' . ($trendH-4) . '" font-size="7" fill="#444">' . $lbl . '</text>';
 			}
@@ -571,7 +583,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 
 		$dateiname    = htmlspecialchars(basename($logDatei));
 		$ts           = date('d.m.Y H:i:s');
-		$fehlerHeuteH = number_format(array_sum($stundenCount));
+		$fehlerHeuteH = number_format(array_sum($stundenCountH));
 		$fehlerGesH   = number_format(array_sum($stundenCountG));
 
 		return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">'
@@ -622,13 +634,14 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			. '</div>'
 			// Chart 1
 			. '<div class="card">'
-			. '<h3>⏰ Errors + Warnings nach Uhrzeit <span style="font-weight:normal;text-transform:none;font-size:10px;color:#444">Heute vs. Gestern</span></h3>'
+			. '<h3>⏰ Errors + Warnings nach Uhrzeit <span style="font-weight:normal;text-transform:none;font-size:10px;color:#444">alle Tage aggregiert</span></h3>'
 			. '<svg viewBox="0 0 ' . $svgW . ' ' . $svgH . '" width="100%" style="background:#161616;border-radius:3px">' . $svgBars . '</svg>'
-			. '<div class="legend"><span><span class="ld" style="background:#5a9"></span>Heute niedrig</span><span><span class="ld" style="background:#fa0"></span>Heute mittel</span><span><span class="ld" style="background:#f66"></span>Heute hoch</span><span><span class="ld" style="background:#3a3a3a"></span>Gestern</span></div>'
+			. '<div class="legend"><span><span class="ld" style="background:#5a9"></span>Niedrig</span><span><span class="ld" style="background:#fa0"></span>Mittel</span><span><span class="ld" style="background:#f66"></span>Hoch</span><span style="margin-left:8px;color:#444;font-size:10px">Farbe relativ zum Maximum aller Stunden</span></div>'
 			. '</div>'
 			// Chart 2
 			. '<div class="card">'
-			. '<h3>📈 Verlauf letzte 30 Tage <span style="font-weight:normal;text-transform:none;font-size:10px;color:#f88">■ Heute</span> <span style="font-size:10px;color:#444;font-weight:normal;text-transform:none">(log. Skala)</span></h3>'
+			. '<h3>📈 Verlauf <span id="trend-title-tage"></span><span style="font-weight:normal;text-transform:none;font-size:10px;color:#f88"> ■ Heute</span> <span style="font-size:10px;color:#444;font-weight:normal;text-transform:none">(log. Skala)</span></h3>'
+			. '<script>document.getElementById("trend-title-tage").textContent="' . $tageSpanne . ' Tage";</script>'
 			. '<svg viewBox="0 0 ' . $trendW . ' ' . $trendH . '" width="100%" style="background:#161616;border-radius:3px">' . $trendBars . '</svg>'
 			. '</div>'
 			// Charts 3+4
@@ -664,12 +677,14 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			.     'var c=parseInt(r.getAttribute("data-c")||"0");'
 			.     'var g=parseInt(r.getAttribute("data-g")||"0");'
 			.     'if(!c&&!g){hideTip();return;}'
+			.     'var tot=parseInt(r.getAttribute("data-tot")||"0");'
 			.     'showTip(e,'
 			.       '"<b style=\\"color:#ffd080\\">"+(r.getAttribute("data-h")||"")+" Uhr</b><br>"'
-			.       '+"<span style=\\"color:#f88\\">Heute: <b>"+c+"</b></span> &nbsp;"'
-			.       '+"<span style=\\"color:#555\\">Gestern: "+g+"</span>"'
+			.       '+"Gesamt (alle Tage): <b style=\\"color:#f88\\">"+tot+"</b><br>"'
+			.       '+"Heute: <b style=\\"color:#fa8\\">"+c+"</b> &nbsp; Gestern: <span style=\\"color:#555\\">"+g+"</span>"'
 			.       '+(r.getAttribute("data-m")?"<br><span style=\\"color:#999\\">"+r.getAttribute("data-m")+"</span>":"")'
-			.     ');'
+			.     ')'
+			.     ';'
 			.   '});'
 			.   'r.addEventListener("mousemove",moveTip);'
 			.   'r.addEventListener("mouseleave",hideTip);'
@@ -677,8 +692,8 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			.     'var hr=parseInt(r.getAttribute("data-h")||"0");'
 			.     'var c=parseInt(r.getAttribute("data-c")||"0");'
 			.     'var g=parseInt(r.getAttribute("data-g")||"0");'
-			.     'if(c>0){var url=_apiBase+"?a=StundenDetail&datum=heute&h="+hr;openOverlay(url,r.getAttribute("data-h")+" Uhr (Heute)",c);}'
-			.     'else if(g>0){var url=_apiBase+"?a=StundenDetail&datum=gestern&h="+hr;openOverlay(url,r.getAttribute("data-h")+" Uhr (Gestern)",g);}'
+			.     'var tot=parseInt(r.getAttribute("data-tot")||"0");'
+			.     'if(tot>0){var url=_apiBase+"?a=StundenDetail&datum=alle&h="+hr;openOverlay(url,r.getAttribute("data-h")+" Uhr (alle Tage)",tot);}'
 			.   '});'
 			. '});'
 			. 'document.querySelectorAll(".th").forEach(function(r){'
@@ -855,7 +870,8 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 		}
 		$heute    = date('Y-m-d');
 		$gestern  = date('Y-m-d', strtotime('-1 day'));
-		$zielDatum = ($datum === 'gestern') ? $gestern : $heute;
+		$alle     = ($datum === 'alle');
+		$zielDatum = ($datum === 'gestern') ? $gestern : ($alle ? null : $heute);
 		$ergebnis  = [];
 		$handle    = @fopen($logDatei, 'rb');
 		if ($handle) {
@@ -865,7 +881,7 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 				$zstamp = (string)($p['zeitstempel'] ?? '');
 				if (!preg_match('/(\d{2})\.(\d{2})\.(\d{4})/', $zstamp, $dm)) continue;
 				$d = $dm[3] . '-' . $dm[2] . '-' . $dm[1];
-				if ($d !== $zielDatum) continue;
+				if (!$alle && $d !== $zielDatum) continue;
 				if (!preg_match('/(\d{2}):(\d{2}):(\d{2})/', $zstamp, $tm)) continue;
 				if ((int)$tm[1] !== $stunde) continue;
 				$ergebnis[] = [
@@ -877,9 +893,13 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			}
 			fclose($handle);
 		}
-		$ergebnis = array_slice(array_reverse($ergebnis), 0, 300);
-		$tagLabel = ($datum === 'gestern') ? 'Gestern' : 'Heute';
-		$label = $tagLabel . ', ' . sprintf('%02d:00–%02d:59', $stunde, $stunde);
+		$ergebnis = array_slice(array_reverse($ergebnis), 0, 500);
+		if ($alle) {
+			$label = sprintf('%02d:00–%02d:59 Uhr (alle Tage)', $stunde, $stunde);
+		} else {
+			$tagLabel = ($datum === 'gestern') ? 'Gestern' : 'Heute';
+			$label = $tagLabel . ', ' . sprintf('%02d:00–%02d:59', $stunde, $stunde);
+		}
 		return json_encode(['label' => $label, 'count' => count($ergebnis), 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
 	}
 
