@@ -791,7 +791,9 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			.       'if(d.error){body.innerHTML="<p style=\\"color:#f66;padding:20px\\">Fehler: "+d.error+"</p>";return;}'
 			.       '_hmData=d.eintraege||[];'
 			.       '_hmPages=Math.max(1,Math.ceil(_hmData.length/_hmPgSize));'
-			.       'title.textContent=d.label+" ("+_hmData.length+" Einträge)";'
+			.       'var totalCount=d.count||_hmData.length;'
+			.       'var shownHint=(_hmData.length<totalCount?" – letzte "+_hmData.length+" von "+totalCount+" gezeigt":"");'
+			.       'title.textContent=d.label+" ("+totalCount+" Einträge"+shownHint+")";'
 			.       'hmRenderPage(0);'
 			.     '})'
 			.     '.catch(function(err){body.innerHTML="<p style=\\"color:#f66;padding:20px\\">Fehler: "+err+"</p>";});'
@@ -857,11 +859,12 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			fclose($h);
 		}
 
-		$ergebnis = array_reverse($ergebnis);
+		$gesamt = count($ergebnis);
+		$ergebnis = array_slice(array_reverse($ergebnis), 0, 500);
 
 		return json_encode([
 			'label'   => $tage[$dow] . ', ' . sprintf('%02d:00–%02d:59', $stunde, $stunde),
-			'count'   => count($ergebnis),
+			'count'   => $gesamt,
 			'eintraege' => $ergebnis,
 		], JSON_UNESCAPED_UNICODE);
 	}
@@ -883,9 +886,10 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			}
 			fclose($h);
 		}
-		$ergebnis = array_reverse($ergebnis);
+		$gesamt = count($ergebnis);
+		$ergebnis = array_slice(array_reverse($ergebnis), 0, 500);
 		$label = date('d.m.Y', strtotime($datum)) . ' (' . $this->wochentagName($datum) . ')';
-		return json_encode(['label' => $label, 'count' => count($ergebnis), 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
+		return json_encode(['label' => $label, 'count' => $gesamt, 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
 	}
 
 	public function StundenDetail(string $datum, int $stunde): string
@@ -912,14 +916,15 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			}
 			fclose($h);
 		}
-		$ergebnis = array_reverse($ergebnis);
+		$gesamt = count($ergebnis);
+		$ergebnis = array_slice(array_reverse($ergebnis), 0, 500);
 		if ($alle) {
 			$label = sprintf('%02d:00–%02d:59 Uhr (alle Tage)', $stunde, $stunde);
 		} else {
 			$tagLabel = ($datum === 'gestern') ? 'Gestern' : 'Heute';
 			$label = $tagLabel . ', ' . sprintf('%02d:00–%02d:59', $stunde, $stunde);
 		}
-		return json_encode(['label' => $label, 'count' => count($ergebnis), 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
+		return json_encode(['label' => $label, 'count' => $gesamt, 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
 	}
 
 	public function WochentagDetail(int $dow): string
@@ -942,8 +947,9 @@ class LogAnalyzerIPSView extends IPSModuleStrict
 			}
 			fclose($h);
 		}
-		$ergebnis = array_reverse($ergebnis);
-		return json_encode(['label' => $tage[$dow], 'count' => count($ergebnis), 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
+		$gesamt = count($ergebnis);
+		$ergebnis = array_slice(array_reverse($ergebnis), 0, 500);
+		return json_encode(['label' => $tage[$dow], 'count' => $gesamt, 'eintraege' => $ergebnis], JSON_UNESCAPED_UNICODE);
 	}
 
 
